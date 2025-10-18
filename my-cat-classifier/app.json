@@ -1,0 +1,20 @@
+{
+  "expo": {
+    "name": "My Cat Classifier",
+    "slug": "my-cat-classifier",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.example.mycatclassifier",
+      "deploymentTarget": "15.1"
+    },
+    "android": {
+      "package": "com.example.mycatclassifier",
+      "minSdkVersion": 24
+    },
+    "plugins": []
+  }
+}

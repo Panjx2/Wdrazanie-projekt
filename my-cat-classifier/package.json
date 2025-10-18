@@ -1,0 +1,27 @@
+{
+  "name": "my-cat-classifier",
+  "version": "1.0.0",
+  "private": true,
+  "main": "index.js",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
+    "export-onnx": "python ./scripts/export_to_onnx.py"
+  },
+  "dependencies": {
+    "base64-js": "^1.5.1",
+    "expo": "~51.0.0",
+    "expo-asset": "~10.0.10",
+    "expo-image-manipulator": "~12.0.3",
+    "expo-image-picker": "~15.0.7",
+    "jpeg-js": "^0.4.4",
+    "onnxruntime-react-native": "^1.17.0",
+    "react": "18.2.0",
+    "react-native": "0.76.0"
+  },
+  "devDependencies": {
+    "@types/jpeg-js": "^0.4.4",
+    "typescript": "^5.4.0"
+  }
+}
