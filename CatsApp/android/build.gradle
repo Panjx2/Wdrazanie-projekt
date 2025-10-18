@@ -1,4 +1,13 @@
 buildscript {
+    configurations.classpath {
+        resolutionStrategy.eachDependency { details ->
+            if (details.requested.group == "org.gradle.toolchains" &&
+                    details.requested.name == "foojay-resolver") {
+                details.useVersion "0.8.0"
+                details.because("Gradle 9 cache corruption with foojay-resolver 0.5.0")
+            }
+        }
+    }
     ext {
         buildToolsVersion = "36.0.0"
         minSdkVersion = 24
