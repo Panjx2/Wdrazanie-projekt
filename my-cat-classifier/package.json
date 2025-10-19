@@ -11,19 +11,23 @@
   },
   "dependencies": {
     "base64-js": "^1.5.1",
-    "expo": "~51.0.0",
-    "expo-asset": "~10.0.10",
-    "expo-image-manipulator": "~12.0.3",
-    "expo-image-picker": "~15.0.7",
+    "expo": "~52.0.0",
+    "expo-asset": "~11.0.5",
+    "expo-image-manipulator": "~13.0.6",
+    "expo-image-picker": "~16.0.6",
     "jpeg-js": "^0.4.4",
     "onnxruntime-react-native": "^1.23.0",
     "react": "19.1.0",
-    "react-native": "0.81.4"
+    "react-native": "0.81.4",
+    "react-native-reanimated": "~3.16.1"
   },
   "devDependencies": {
     "@react-native-community/cli": "latest",
     "typescript": "^5.4.0"
   },
   "react-native": "0.81.4",
-  "react": "19.1.0"
+  "react": "19.1.0",
+  "overrides": {
+    "metro": "0.80.9"
+  }
 }
