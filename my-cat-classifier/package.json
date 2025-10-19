@@ -7,7 +7,7 @@
     "start": "expo start",
     "android": "expo run:android",
     "ios": "expo run:ios",
-    "export-onnx": "python ./scripts/export_to_onnx.py"
+    "export-onnx": "python scripts/export_to_onnx.py"
   },
   "dependencies": {
     "base64-js": "^1.5.1",

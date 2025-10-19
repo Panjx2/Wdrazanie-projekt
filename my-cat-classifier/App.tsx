@@ -1,5 +1,5 @@
-// App.jsx — robust + logi + auto wykrywanie nazw wej/wyj ONNX
-import 'react-native-reanimated'; // ważne: JSI przed wszystkim
+// App.jsx — dokładność priorytet, ONNX z external data, Resize 224×224 + Normalize
+import 'react-native-reanimated';
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import {
   SafeAreaView,
@@ -10,19 +10,19 @@ import {
   ActivityIndicator,
   FlatList,
   Alert,
+  Platform,
 } from 'react-native';
 import * as ort from 'onnxruntime-react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { Asset } from 'expo-asset';
-
-// labels.json przez require (działa bez TS)
-const labels = require('./assets/labels.json');
-
-// helper konwersji JPEG base64 → Float32 CHW
+import * as FileSystem from 'expo-file-system';
 import { chwFromBase64JPEG224 } from './src/utils/preprocess';
 
-// normalizacja jak w ImageNet
+// labels.json (kolejność MUSI być taka sama jak w treningu)
+const labels = require('./assets/labels.json');
+
+// Normalizacja ImageNet
 const IMAGENET_MEAN = [0.485, 0.456, 0.406];
 const IMAGENET_STD  = [0.229, 0.224, 0.225];
 
@@ -33,6 +33,31 @@ const FG_MUTED = '#cfcfcf';
 const ACCENT = '#1f6feb';
 const BORDER = '#222';
 
+// Ustawienia
+const USE_BGR = false;          // ustaw na true tylko jeśli trenowałeś w BGR (OpenCV)
+const USE_PNG_LOSSLESS = false; // ustaw na true, by zapisać do PNG (dokładniejszy tensor, większy plik)
+
+// ---- Helper: przygotuj ścieżkę modelu z plikiem external data ----
+async function prepareOnnxWithExternalData() {
+  // Załaduj oba assety, aby dostać localUri
+  const [onnxAsset, dataAsset] = await Asset.loadAsync([
+    require('./assets/models/mobilenetv2_finetuned.onnx'),
+    require('./assets/models/mobilenetv2_finetuned.onnx.data'),
+  ]);
+
+  const dir = FileSystem.cacheDirectory + 'ort-model/';
+  try { await FileSystem.makeDirectoryAsync(dir, { intermediates: true }); } catch {}
+
+  const modelDst = dir + 'mobilenetv2_finetuned.onnx';
+  const dataDst  = dir + 'mobilenetv2_finetuned.onnx.data';
+
+  // Nadpisz, aby zgadzały się dokładne nazwy i lokalizacja
+  await FileSystem.copyAsync({ from: onnxAsset.localUri, to: modelDst });
+  await FileSystem.copyAsync({ from: dataAsset.localUri, to: dataDst });
+
+  return modelDst; // ORT znajdzie .data w tym samym folderze
+}
+
 export default function App() {
   const [status, setStatus] = useState('⏳ Inicjalizacja…');
   const [busy, setBusy] = useState(false);
@@ -41,7 +66,7 @@ export default function App() {
   const [probTopK, setProbTopK] = useState([]);
   const sessionRef = useRef(null);
 
-  const log = (...a) => console.log('[CatApp]', ...a);
+  const log  = (...a) => console.log('[CatApp]', ...a);
   const warn = (...a) => console.warn('[CatApp]', ...a);
   const err  = (...a) => console.error('[CatApp]', ...a);
 
@@ -50,48 +75,32 @@ export default function App() {
          .sort((a, b) => b.p - a.p)
          .slice(0, Math.min(k, probs.length));
 
-  // ---- Ładowanie modelu (z logami) ----
+  // ---- Ładowanie modelu (.onnx + .onnx.data) ----
   const loadModel = useCallback(async () => {
     try {
       setReady(false);
       setStatus('📦 Ładowanie modelu…');
-      console.time('Asset.loadAsync');
 
-      const [modelAsset] = await Asset.loadAsync(
-        // <-- UPEWNIJ SIĘ, że nazwa pliku zgadza się z dyskiem
-        require('./assets/models/mobilenetv2_finetuned.onnx')
-      );
-      console.timeEnd('Asset.loadAsync');
-      log('Model asset uri:', modelAsset.localUri);
+      const modelPath = await prepareOnnxWithExternalData();
+      log('Model local path:', modelPath);
 
       setStatus('🧠 Tworzenie sesji ORT…');
-      console.time('ORT.create');
-      sessionRef.current = await ort.InferenceSession.create(modelAsset.localUri, {
-        executionProviders: ['cpu'], // można spróbować 'xnnpack' na nowszych urządzeniach
+      sessionRef.current = await ort.InferenceSession.create(modelPath, {
+        executionProviders: Platform.OS === 'android' ? ['xnnpack', 'cpu'] : ['cpu'],
       });
-      console.timeEnd('ORT.create');
 
-      // krótki podgląd nazw wej/wyj
-      try {
-        log('Input names (jeśli dostępne):', sessionRef.current.inputNames);
-      } catch {}
-      try {
-        const outNames = Object.keys(await sessionRef.current.outputNames || {});
-        log('Output names (jeśli dostępne):', outNames);
-      } catch {}
-
+      log('Input names:', sessionRef.current.inputNames ?? []);
+      log('Output names:', sessionRef.current.outputNames ?? []);
       setStatus('✅ Gotowe');
       setReady(true);
     } catch (e) {
       err('Błąd ładowania modelu:', e?.message || e);
-      setStatus('❌ Błąd ładowania modelu (detale w konsoli)');
+      setStatus('❌ Błąd ładowania modelu');
       Alert.alert('Model error', String(e?.message || e));
     }
   }, []);
 
-  useEffect(() => {
-    loadModel();
-  }, [loadModel]);
+  useEffect(() => { loadModel(); }, [loadModel]);
 
   // ---- Wybór zdjęcia ----
   const pickImage = useCallback(async () => {
@@ -101,8 +110,14 @@ export default function App() {
         Alert.alert('Brak uprawnień', 'Potrzebny dostęp do galerii.');
         return;
       }
+
+      // Nowe API: mediaTypes to pojedyncza wartość enum
+      const mediaImages =
+        (ImagePicker.MediaType && ImagePicker.MediaType.Images) ||
+        ImagePicker.MediaTypeOptions.Images;
+
       const res = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: mediaImages,
         quality: 1,
         base64: false,
       });
@@ -111,82 +126,94 @@ export default function App() {
       const uri = res.assets[0].uri;
       log('Wybrano:', uri);
 
-      setStatus('🛠️ Skaluję do 224×224…');
+      // Dokładnie jak w notebooku: resize do 224x224 (bez cropa)
+      setStatus('🛠️ Resize 224×224…');
       console.time('Resize+Base64');
+
+      const outFormat = USE_PNG_LOSSLESS
+        ? ImageManipulator.SaveFormat.PNG
+        : ImageManipulator.SaveFormat.JPEG;
+
       const resized = await ImageManipulator.manipulateAsync(
         uri,
         [{ resize: { width: 224, height: 224 } }],
-        { compress: 1, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+        {
+          compress: USE_PNG_LOSSLESS ? 1 : 0.95,
+          format: outFormat,
+          base64: true,
+        }
       );
       console.timeEnd('Resize+Base64');
 
       setPreviewUri(resized.uri);
-      if (!resized.base64) throw new Error('Brak base64 po przetwarzaniu obrazu');
-      await classify(resized.base64);
+      if (!resized.base64) throw new Error('Brak base64 po przetwarzaniu');
+
+      await classifySingle(resized.base64);
     } catch (e) {
-      err('Błąd wyboru/skalowania:', e?.message || e);
-      setStatus('❌ Błąd obrazu (detale w konsoli)');
+      err('Błąd obrazu:', e?.message || e);
+      setStatus('❌ Błąd obrazu');
       Alert.alert('Image error', String(e?.message || e));
     }
   }, []);
 
-  // ---- Klasyfikacja ----
-  const classify = useCallback(async (jpegBase64) => {
+  // ---- Klasyfikacja (pojedynczy forward) ----
+  const classifySingle = useCallback(async (jpegBase64) => {
     const session = sessionRef.current;
     if (!session) {
       warn('Sesja ORT niegotowa');
-      setStatus('⏳ Model jeszcze się ładuje…');
+      setStatus('⏳ Model się ładuje…');
       return;
     }
 
     setBusy(true);
     setStatus('🤖 Klasyfikuję…');
     try {
-      console.time('Preprocess');
-      const chwFloat32 = chwFromBase64JPEG224(jpegBase64, IMAGENET_MEAN, IMAGENET_STD);
-      console.timeEnd('Preprocess');
+      // JPEG base64 -> Float32 CHW + normalize (ImageNet, RGB/BGR)
+      const chw = chwFromBase64JPEG224(jpegBase64, IMAGENET_MEAN, IMAGENET_STD, USE_BGR);
 
-      const inputTensor = new ort.Tensor('float32', chwFloat32, [1, 3, 224, 224]);
-
-      // podgląd nazw wejść i dynamiczne mapowanie feedów
-      let inputName = 'input';
-      try {
-        if (Array.isArray(session.inputNames) && session.inputNames.length > 0) {
-          inputName = session.inputNames[0];
-        }
-      } catch {}
-      const feeds = {};
-      feeds[inputName] = inputTensor;
-      log('Używam input name:', inputName);
-
-      console.time('ORT.run');
-      const outputMap = await session.run(feeds);
-      console.timeEnd('ORT.run');
-
-      const outKeys = Object.keys(outputMap);
-      log('Output keys:', outKeys);
-      if (outKeys.length === 0) throw new Error('Brak wyjść z modelu');
-
-      const firstOutName = outputMap.logits ? 'logits' : outKeys[0];
-      const outTensor = outputMap[firstOutName];
-      if (!outTensor?.data) throw new Error('Puste wyjście modelu');
-
-      const logits = outTensor.data; // Float32Array
-      log('logits len:', logits.length, 'first5:', Array.from(logits).slice(0, 5));
-
-      // softmax (stabilny)
-      const max = Math.max(...logits);
-      const exps = Array.from(logits, v => Math.exp(v - max));
-      const sum = exps.reduce((a, b) => a + b, 0);
-      const probs = exps.map(v => v / (sum || 1)); // guard przed dzieleniem przez 0
-
-      if (!Number.isFinite(probs[0])) {
-        throw new Error('Wyliczono NaN/Inf w softmax — sprawdź wejście i normalizację');
+      // Szybkie sanity: średnie kanałów ~0 po normalizacji
+      {
+        const size = 224 * 224;
+        const mR = chw.slice(0, size).reduce((a,b)=>a+b, 0) / size;
+        const mG = chw.slice(size, 2*size).reduce((a,b)=>a+b, 0) / size;
+        const mB = chw.slice(2*size).reduce((a,b)=>a+b, 0) / size;
+        log('CHW means (≈0):', mR.toFixed(3), mG.toFixed(3), mB.toFixed(3));
       }
 
-      // dopasowanie długości labels
-      if (labels.length !== probs.length) {
-        warn(`labels(${labels.length}) != probs(${probs.length}) — zmapuję po indeksach dostępnych`);
+      const inputName = session.inputNames?.[0] ?? 'input';
+      const tensor = new ort.Tensor('float32', chw, [1, 3, 224, 224]);
+
+      const outputMap = await session.run({ [inputName]: tensor });
+      const keys = Object.keys(outputMap);
+
+      // preferuj 'prob'/'softmax' jeśli są, inaczej 'logits' / pierwszy klucz
+      const probAliases = ['prob', 'probs', 'probabilities', 'softmax'];
+      const logitAliases = ['logits', 'output'];
+      const outName =
+        probAliases.find(k => keys.includes(k)) ??
+        logitAliases.find(k => keys.includes(k)) ??
+        keys[0];
+
+      const outT = outputMap[outName];
+      if (!outT?.data) throw new Error(`Puste wyjście modelu "${outName}"`);
+      const data = outT.data;
+
+      let probs;
+      if (probAliases.includes(outName)) {
+        // już prawdopodobieństwa
+        probs = Array.from(data);
+      } else {
+        // logits -> softmax (stabilny)
+        let max = -Infinity;
+        for (let i = 0; i < data.length; i++) if (data[i] > max) max = data[i];
+        const exps = new Float32Array(data.length);
+        let sum = 0;
+        for (let i = 0; i < data.length; i++) {
+          const v = Math.exp(data[i] - max);
+          exps[i] = v;
+          sum += v;
+        }
+        probs = Array.from(exps, v => v / (sum || 1));
       }
 
       const top = topK(probs, 3).map(({ i, p }) => ({
@@ -199,7 +226,7 @@ export default function App() {
       log('TOP-3:', top.map(t => `${t.label}: ${(t.p * 100).toFixed(1)}%`).join(', '));
     } catch (e) {
       err('Błąd klasyfikacji:', e?.message || e);
-      setStatus('❌ Błąd klasyfikacji (detale w konsoli)');
+      setStatus('❌ Błąd klasyfikacji');
       Alert.alert('Inference error', String(e?.message || e));
     } finally {
       setBusy(false);
