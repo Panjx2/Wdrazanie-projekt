@@ -17,7 +17,8 @@
       "minSdkVersion": 24
     },
     "plugins": [
-      "expo-asset"
+      "expo-asset",
+      "onnxruntime-react-native"
     ]
   }
 }

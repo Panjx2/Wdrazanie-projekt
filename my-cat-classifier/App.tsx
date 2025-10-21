@@ -85,8 +85,13 @@ export default function App() {
       log('Model local path:', modelPath);
 
       setStatus('🧠 Tworzenie sesji ORT…');
+      const executionProviders = Platform.select({
+          android: ['xnnpack', 'cpu'],
+          ios: ['coreml', 'cpu'],
+          default: ['cpu'],
+      });
       sessionRef.current = await ort.InferenceSession.create(modelPath, {
-        executionProviders: Platform.OS === 'android' ? ['xnnpack', 'cpu'] : ['cpu'],
+        executionProviders,
       });
 
       log('Input names:', sessionRef.current.inputNames ?? []);
