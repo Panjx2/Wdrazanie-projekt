@@ -70,8 +70,8 @@ export function useCameraLoop({
         const resized = await resizeTo224Base64(photo.uri, 'camera');
         await classifyBase64(resized.base64, { silent: true });
       }
-    } catch (e: any) {
-      warn('Kamera: błąd przechwytywania klatki', e?.message || e);
+    } catch (e) {
+      warn('Kamera: błąd przechwytywania klatki', (e as any)?.message || e);
     } finally {
       takingPictureRef.current = false;
     }
@@ -102,4 +102,80 @@ export function useCameraLoop({
       clearPreview?.();
       setCameraActive(true);
       updateStatus('📸 Uruchamianie kamery…');
-    } catch (e: any) {
+    } catch (e) {
+      err('Błąd kamery:', (e as any)?.message || e);
+      updateStatus('❌ Błąd kamery');
+      Alert.alert('Camera error', String((e as any)?.message || e));
+    }
+  }, [cameraActive, clearPreview, err, permission, ready, requestPermission, stopCameraCapture, updateStatus]);
+
+  const handleCameraReady = useCallback(() => {
+    setCameraReady(true);
+    updateStatus('📸 Kamera gotowa');
+  }, [updateStatus]);
+
+  const handleMountError = useCallback(
+    (event: { nativeEvent?: { message?: string } }) => {
+      const message = event?.nativeEvent?.message || 'Nie udało się uruchomić kamery';
+      err('Camera mount error:', message);
+      updateStatus('❌ Błąd kamery');
+      Alert.alert('Camera error', message);
+      setCameraActive(false);
+    },
+    [err, updateStatus]
+  );
+
+  useEffect(() => () => {
+    stopCameraCapture();
+    setCameraActive(false);
+  }, [stopCameraCapture]);
+
+  useEffect(() => {
+    if (!cameraActive || !cameraReady || !ready) {
+      stopCameraCapture();
+      if (cameraActive && ready) {
+        updateStatus('📸 Oczekiwanie na kamerę…');
+      }
+      return;
+    }
+
+    updateStatus('📸 Kamera aktywna');
+
+    let cancelled = false;
+
+    const loop = async () => {
+      if (cancelled) return;
+      await captureFrame();
+      if (cancelled) return;
+      captureTimeoutRef.current = setTimeout(loop, CAMERA_CAPTURE_INTERVAL_MS);
+    };
+
+    void loop();
+
+    return () => {
+      cancelled = true;
+      stopCameraCapture();
+    };
+  }, [cameraActive, cameraReady, captureFrame, ready, stopCameraCapture, updateStatus]);
+
+  return useMemo(
+    () => ({
+      cameraActive,
+      cameraReady,
+      toggleCamera,
+      cameraRef,
+      permission,
+      handleCameraReady,
+      handleMountError,
+    }),
+    [
+      cameraActive,
+      cameraReady,
+      toggleCamera,
+      cameraRef,
+      permission,
+      handleCameraReady,
+      handleMountError,
+    ]
+  );
+}
