@@ -145,9 +145,12 @@ export function useCameraLoop({
 
     const loop = async () => {
       if (cancelled) return;
+      const startedAt = Date.now();
       await captureFrame();
       if (cancelled) return;
-      captureTimeoutRef.current = setTimeout(loop, CAMERA_CAPTURE_INTERVAL_MS);
+      const elapsed = Date.now() - startedAt;
+      const delay = Math.max(0, CAMERA_CAPTURE_INTERVAL_MS - elapsed);
+      captureTimeoutRef.current = setTimeout(loop, delay);
     };
 
     void loop();
