@@ -1,0 +1,9 @@
+autodistill 
+autodistill-grounded-sam
+autodistill-yolov8 
+roboflow
+supervision
+scikit-learn
+torch==2.7.0
+torchvision
+torchaudio
