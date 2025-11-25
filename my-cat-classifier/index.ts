@@ -1,3 +1,11 @@
+// Polyfill dla Buffer (wymagane przez jpeg-js)
+import { Buffer } from 'buffer';
+if (typeof global !== 'undefined') {
+  (global as any).Buffer = Buffer;
+} else if (typeof globalThis !== 'undefined') {
+  (globalThis as any).Buffer = Buffer;
+}
+
 import { registerRootComponent } from 'expo';
 
 import App from './App';
