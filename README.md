@@ -2,6 +2,8 @@ w /my-cat-classifier:
 npx expo prebuild --clean
 npx expo run:android
 
+W folderze Segmentation należy umieścić plik: https://huggingface.co/HCMUE-Research/SAM-vit-h/blob/main/sam_vit_h_4b8939.pth 
+, nie zmieścił się na Githubie z powodu rozmiaru >2GB
 
 Backend Flask do komunikacji między React Native aplikacją a skryptem Python do segmentacji kotów.
 
