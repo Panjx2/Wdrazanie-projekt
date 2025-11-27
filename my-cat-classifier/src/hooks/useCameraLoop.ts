@@ -23,7 +23,8 @@ interface UseCameraLoopResult {
   cameraReady: boolean;
   startCamera: () => Promise<void>;
   stopCamera: () => void;
-  toggleCamera: () => Promise<void>;
+  pauseCapture: () => void;
+  resumeCapture: () => void;
   cameraRef: MutableRefObject<CameraView | null>;
   permission: CameraPermissionResponse | undefined;
   handleCameraReady: () => void;
@@ -43,6 +44,7 @@ export function useCameraLoop({
   const [permission, requestPermission] = useCameraPermissions();
   const [cameraActive, setCameraActive] = useState(false);
   const [cameraReady, setCameraReady] = useState(false);
+  const [capturePaused, setCapturePaused] = useState(false);
   const cameraRef = useRef<CameraView | null>(null);
   const captureTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const takingPictureRef = useRef(false);
@@ -66,16 +68,17 @@ export function useCameraLoop({
     }
   }, [cameraActive, ready, stopCameraCapture, updateStatus]);
 
-  const toggleCamera = useCallback(async () => {
-    if (cameraActive) {
-      stopCamera();
-    } else {
-      await startCamera();
-    }
-  }, [cameraActive, startCamera, stopCamera]);
+  const pauseCapture = useCallback(() => {
+    setCapturePaused(true);
+    stopCameraCapture();
+  }, [stopCameraCapture]);
+
+  const resumeCapture = useCallback(() => {
+    setCapturePaused(false);
+  }, []);
 
   const captureFrame = useCallback(async () => {
-    if (!ready || !cameraActive || !cameraReady) return;
+    if (!ready || !cameraActive || !cameraReady || capturePaused) return;
     const camera = cameraRef.current;
     if (!camera || takingPictureRef.current) return;
     takingPictureRef.current = true;
@@ -94,15 +97,10 @@ export function useCameraLoop({
     } finally {
       takingPictureRef.current = false;
     }
-  }, [cameraActive, cameraReady, classifyBase64, ready, resizeTo224Base64, warn]);
+  }, [cameraActive, cameraReady, capturePaused, classifyBase64, ready, resizeTo224Base64, warn]);
 
   const startCamera = useCallback(async () => {
     if (cameraActive) return;
-
-    if (!ready) {
-      updateStatus('⏳ Model się ładuje…');
-      return;
-    }
 
     try {
       const permState = permission ?? (await requestPermission());
@@ -113,8 +111,9 @@ export function useCameraLoop({
       }
       clearPreview?.();
       setCameraReady(false);
+      setCapturePaused(false);
       setCameraActive(true);
-      updateStatus('📸 Uruchamianie kamery…');
+      updateStatus(ready ? '📸 Uruchamianie kamery…' : '⏳ Model się ładuje, kamera startuje…');
     } catch (e) {
       err('Błąd kamery:', (e as any)?.message || e);
       updateStatus('❌ Błąd kamery');
@@ -143,9 +142,9 @@ export function useCameraLoop({
   }, [stopCamera]);
 
   useEffect(() => {
-    if (!cameraActive || !cameraReady || !ready) {
+    if (!cameraActive || !cameraReady || !ready || capturePaused) {
       stopCameraCapture();
-      if (cameraActive && ready) {
+      if (cameraActive && ready && !capturePaused) {
         updateStatus('📸 Oczekiwanie na kamerę…');
       }
       return;
@@ -171,7 +170,7 @@ export function useCameraLoop({
       cancelled = true;
       stopCameraCapture();
     };
-  }, [cameraActive, cameraReady, captureFrame, ready, stopCameraCapture, updateStatus]);
+  }, [cameraActive, cameraReady, captureFrame, ready, capturePaused, stopCameraCapture, updateStatus]);
 
   return useMemo(
     () => ({
@@ -179,7 +178,8 @@ export function useCameraLoop({
       cameraReady,
       startCamera,
       stopCamera,
-      toggleCamera,
+      pauseCapture,
+      resumeCapture,
       cameraRef,
       permission,
       handleCameraReady,
@@ -190,7 +190,8 @@ export function useCameraLoop({
       cameraReady,
       startCamera,
       stopCamera,
-      toggleCamera,
+      pauseCapture,
+      resumeCapture,
       cameraRef,
       permission,
       handleCameraReady,

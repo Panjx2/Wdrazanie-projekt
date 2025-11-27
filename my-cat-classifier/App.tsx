@@ -8,7 +8,7 @@ import { useCatClassifier } from './src/hooks/useCatClassifier';
 import { useCameraLoop } from './src/hooks/useCameraLoop';
 import { COLORS } from './src/config/constants';
 
-const { BG, FG, FG_MUTED, BORDER } = COLORS;
+const { FG, FG_MUTED } = COLORS;
 
 export default function App() {
   const {
@@ -26,37 +26,135 @@ export default function App() {
     err,
   } = useCatClassifier();
 
-  const { cameraActive, startCamera, stopCamera, cameraRef, permission, handleCameraReady, handleMountError } =
-    useCameraLoop({
-      ready,
-      updateStatus,
-      classifyBase64,
-      resizeTo224Base64,
-      resetSilentStatus,
-      clearPreview: () => setPreviewUri(null),
-      warn,
-      err,
-    });
+  const {
+    cameraActive,
+    startCamera,
+    pauseCapture,
+    resumeCapture,
+    cameraRef,
+    permission,
+    handleCameraReady,
+    handleMountError,
+  } = useCameraLoop({
+    ready,
+    updateStatus,
+    classifyBase64,
+    resizeTo224Base64,
+    resetSilentStatus,
+    clearPreview: () => setPreviewUri(null),
+    warn,
+    err,
+  });
 
   useEffect(() => {
-    if (ready) {
-      void startCamera();
-    }
-  }, [ready, startCamera]);
+    void startCamera();
+  }, [startCamera]);
 
   const handleReloadModel = useCallback(async () => {
-    stopCamera();
+    pauseCapture();
     await reloadModel();
-    void startCamera();
-  }, [reloadModel, startCamera, stopCamera]);
+    if (!cameraActive) {
+      await startCamera();
+    }
+    resumeCapture();
+  }, [cameraActive, pauseCapture, reloadModel, resumeCapture, startCamera]);
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: BG }}>
-      <View style={{ flex: 1, padding: 16, gap: 12 }}>
-        <View style={{ gap: 6 }}>
-          <Text style={{ color: FG, fontSize: 28, fontWeight: '800' }}>🐱 Cat Classifier (ONNX)</Text>
-          <Text style={{ color: ready ? '#6ee17a' : FG_MUTED }}>☑ {status}</Text>
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#000' }}>
+      <View style={{ flex: 1, backgroundColor: '#000' }}>
+        {permission?.granted ? (
+          <CameraView
+            ref={cameraRef}
+            style={{ flex: 1 }}
+            facing="back"
+            mode="picture"
+            animateShutter={false}
+            onCameraReady={handleCameraReady}
+            onMountError={handleMountError}
+          />
+        ) : (
+          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16 }}>
+            <Text style={{ color: FG_MUTED, fontSize: 16, textAlign: 'center' }}>
+              Udziel dostępu do aparatu w ustawieniach systemu, aby wyświetlić podgląd.
+            </Text>
+          </View>
+        )}
+
+        {!cameraActive && permission?.granted && (
+          <View
+            style={{
+              position: 'absolute',
+              top: 0,
+              bottom: 0,
+              left: 0,
+              right: 0,
+              alignItems: 'center',
+              justifyContent: 'center',
+              backgroundColor: 'rgba(0,0,0,0.35)',
+            }}
+          >
+            <ActivityIndicator />
+            <Text style={{ color: FG_MUTED, marginTop: 8 }}>Trwa uruchamianie podglądu…</Text>
+          </View>
+        )}
+
+        <View
+          pointerEvents="box-none"
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            padding: 14,
+            flexDirection: 'row',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+          }}
+        >
+          <View style={{ backgroundColor: 'rgba(0,0,0,0.45)', padding: 10, borderRadius: 12 }}>
+            <Text style={{ color: FG, fontSize: 13, fontWeight: '700' }}>Cat Classifier</Text>
+            <Text style={{ color: ready ? '#b5ffb5' : FG_MUTED, marginTop: 2, fontSize: 12 }}>{status}</Text>
+          </View>
+
+          {busy && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <ActivityIndicator size="small" />
+              <Text style={{ color: FG, fontSize: 12 }}>Klasyfikuję…</Text>
+            </View>
+          )}
         </View>
+
+        <View
+          pointerEvents="box-none"
+          style={{
+            position: 'absolute',
+            left: 0,
+            right: 0,
+            bottom: 0,
+            padding: 14,
+            gap: 10,
+          }}
+        >
+          {probTopK.length > 0 && !busy && (
+            <View style={{ backgroundColor: 'rgba(0,0,0,0.55)', borderRadius: 12, padding: 12 }}>
+              <FlatList
+                data={probTopK}
+                keyExtractor={(item, idx) => `${item.label}_${idx}`}
+                renderItem={({ item }) => (
+                  <View
+                    style={{
+                      flexDirection: 'row',
+                      justifyContent: 'space-between',
+                      paddingVertical: 6,
+                    }}
+                  >
+                    <Text style={{ color: FG, fontSize: 15 }}>{item.label}</Text>
+                    <Text style={{ color: FG_MUTED }}>{(item.p * 100).toFixed(1)}%</Text>
+                  </View>
+                )}
+              />
+            </View>
+          )}
 
         <View style={{ flexDirection: 'row', justifyContent: 'flex-end' }}>
           <Pressable
@@ -65,75 +163,19 @@ export default function App() {
             }}
             disabled={busy}
             style={{
-              backgroundColor: '#2c2c2c',
-              paddingHorizontal: 16,
+              backgroundColor: 'rgba(0,0,0,0.65)',
               paddingVertical: 12,
-              borderRadius: 16,
+              borderRadius: 12,
               alignItems: 'center',
-              width: 170,
+              borderWidth: 1,
+              borderColor: 'rgba(255,255,255,0.08)',
+              opacity: busy ? 0.75 : 1,
             }}
           >
             <Text style={{ color: FG, fontSize: 16, fontWeight: '600' }}>🔁 Przeładuj model</Text>
             <Text style={{ color: FG_MUTED, fontSize: 12 }}>kamerka pauzuje na chwilę</Text>
           </Pressable>
         </View>
-
-        {!permission?.granted && (
-          <View style={{ padding: 12, borderRadius: 12, backgroundColor: '#1a1a1a', marginTop: 4 }}>
-            <Text style={{ color: FG_MUTED }}>
-              Udziel dostępu do aparatu w ustawieniach systemu, aby wykonywać klasyfikację w tle.
-            </Text>
-          </View>
-        )}
-
-        {cameraActive && permission?.granted && (
-          <CameraView
-            ref={cameraRef}
-            style={{ width: 1, height: 1, opacity: 0 }}
-            facing="back"
-            mode="picture"
-            animateShutter={false}
-            onCameraReady={handleCameraReady}
-            onMountError={handleMountError}
-          />
-        )}
-
-        <View style={{ padding: 12, borderRadius: 12, backgroundColor: '#1a1a1a', marginTop: 4 }}>
-          <Text style={{ color: FG_MUTED }}>
-            Podgląd aparatu został wyłączony. Zdjęcia są wykonywane automatycznie w tle dla klasyfikacji.
-          </Text>
-        </View>
-
-        {busy && (
-          <View style={{ marginHorizontal: 16, marginTop: 6, alignItems: 'center' }}>
-            <ActivityIndicator />
-            <Text style={{ color: FG_MUTED, marginTop: 8 }}>Klasyfikuję…</Text>
-          </View>
-        )}
-
-        {probTopK.length > 0 && !busy && (
-          <View style={{ marginHorizontal: 16, marginBottom: 12 }}>
-            <Text style={{ color: '#ddd', fontSize: 18, marginBottom: 8 }}>Wynik (Top-3):</Text>
-            <FlatList
-              data={probTopK}
-              keyExtractor={(item, idx) => `${item.label}_${idx}`}
-              renderItem={({ item }) => (
-                <View
-                  style={{
-                    flexDirection: 'row',
-                    justifyContent: 'space-between',
-                    paddingVertical: 10,
-                    borderBottomWidth: 1,
-                    borderColor: BORDER,
-                  }}
-                >
-                  <Text style={{ color: FG, fontSize: 16 }}>{item.label}</Text>
-                  <Text style={{ color: FG_MUTED }}>{(item.p * 100).toFixed(1)}%</Text>
-                </View>
-              )}
-            />
-          </View>
-        )}
       </View>
     </SafeAreaView>
   );
