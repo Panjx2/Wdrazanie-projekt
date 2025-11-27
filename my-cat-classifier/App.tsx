@@ -105,14 +105,14 @@ export default function App() {
         </View>
 
         {busy && (
-          <View style={{ marginTop: 16, alignItems: 'center' }}>
+          <View style={{ marginHorizontal: 16, marginTop: 6, alignItems: 'center' }}>
             <ActivityIndicator />
             <Text style={{ color: FG_MUTED, marginTop: 8 }}>Klasyfikuję…</Text>
           </View>
         )}
 
         {probTopK.length > 0 && !busy && (
-          <View style={{ marginTop: 16 }}>
+          <View style={{ marginHorizontal: 16, marginBottom: 12 }}>
             <Text style={{ color: '#ddd', fontSize: 18, marginBottom: 8 }}>Wynik (Top-3):</Text>
             <FlatList
               data={probTopK}
