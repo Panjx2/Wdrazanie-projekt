@@ -21,6 +21,8 @@ interface UseCameraLoopParams {
 interface UseCameraLoopResult {
   cameraActive: boolean;
   cameraReady: boolean;
+  startCamera: () => Promise<void>;
+  stopCamera: () => void;
   toggleCamera: () => Promise<void>;
   cameraRef: MutableRefObject<CameraView | null>;
   permission: CameraPermissionResponse | undefined;
@@ -55,6 +57,23 @@ export function useCameraLoop({
     setCameraReady(false);
   }, [resetSilentStatus]);
 
+  const stopCamera = useCallback(() => {
+    if (!cameraActive) return;
+    stopCameraCapture();
+    setCameraActive(false);
+    if (ready) {
+      updateStatus('✅ Gotowe');
+    }
+  }, [cameraActive, ready, stopCameraCapture, updateStatus]);
+
+  const toggleCamera = useCallback(async () => {
+    if (cameraActive) {
+      stopCamera();
+    } else {
+      await startCamera();
+    }
+  }, [cameraActive, startCamera, stopCamera]);
+
   const captureFrame = useCallback(async () => {
     if (!ready || !cameraActive || !cameraReady) return;
     const camera = cameraRef.current;
@@ -77,15 +96,8 @@ export function useCameraLoop({
     }
   }, [cameraActive, cameraReady, classifyBase64, ready, resizeTo224Base64, warn]);
 
-  const toggleCamera = useCallback(async () => {
-    if (cameraActive) {
-      stopCameraCapture();
-      setCameraActive(false);
-      if (ready) {
-        updateStatus('✅ Gotowe');
-      }
-      return;
-    }
+  const startCamera = useCallback(async () => {
+    if (cameraActive) return;
 
     if (!ready) {
       updateStatus('⏳ Model się ładuje…');
@@ -96,10 +108,11 @@ export function useCameraLoop({
       const permState = permission ?? (await requestPermission());
       if (!permState?.granted) {
         updateStatus('❌ Brak dostępu do kamery');
-        Alert.alert('Camera access', 'Zezwól na dostęp do kamery, aby korzystać z podglądu.');
+        Alert.alert('Camera access', 'Zezwól na dostęp do kamery, aby wykonywać klasyfikację.');
         return;
       }
       clearPreview?.();
+      setCameraReady(false);
       setCameraActive(true);
       updateStatus('📸 Uruchamianie kamery…');
     } catch (e) {
@@ -107,7 +120,7 @@ export function useCameraLoop({
       updateStatus('❌ Błąd kamery');
       Alert.alert('Camera error', String((e as any)?.message || e));
     }
-  }, [cameraActive, clearPreview, err, permission, ready, requestPermission, stopCameraCapture, updateStatus]);
+  }, [cameraActive, clearPreview, err, permission, ready, requestPermission, updateStatus]);
 
   const handleCameraReady = useCallback(() => {
     setCameraReady(true);
@@ -126,9 +139,8 @@ export function useCameraLoop({
   );
 
   useEffect(() => () => {
-    stopCameraCapture();
-    setCameraActive(false);
-  }, [stopCameraCapture]);
+    stopCamera();
+  }, [stopCamera]);
 
   useEffect(() => {
     if (!cameraActive || !cameraReady || !ready) {
@@ -165,6 +177,8 @@ export function useCameraLoop({
     () => ({
       cameraActive,
       cameraReady,
+      startCamera,
+      stopCamera,
       toggleCamera,
       cameraRef,
       permission,
@@ -174,6 +188,8 @@ export function useCameraLoop({
     [
       cameraActive,
       cameraReady,
+      startCamera,
+      stopCamera,
       toggleCamera,
       cameraRef,
       permission,
