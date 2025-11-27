@@ -28,6 +28,7 @@ export default function App() {
 
   const {
     cameraActive,
+    cameraReady,
     startCamera,
     pauseCapture,
     resumeCapture,
@@ -113,7 +114,14 @@ export default function App() {
         >
           <View style={{ backgroundColor: 'rgba(0,0,0,0.45)', padding: 10, borderRadius: 12 }}>
             <Text style={{ color: FG, fontSize: 13, fontWeight: '700' }}>Cat Classifier</Text>
-            <Text style={{ color: ready ? '#b5ffb5' : FG_MUTED, marginTop: 2, fontSize: 12 }}>{status}</Text>
+            <Text style={{ color: ready ? '#b5ffb5' : FG_MUTED, marginTop: 2, fontSize: 12 }}>
+              {status}
+            </Text>
+            {cameraReady ? null : (
+              <Text style={{ color: FG_MUTED, marginTop: 4, fontSize: 11 }}>
+                Podgląd kamery jest aktywny.
+              </Text>
+            )}
           </View>
 
           {busy && (
@@ -123,6 +131,38 @@ export default function App() {
             </View>
           )}
         </View>
+
+        <View
+          pointerEvents="box-none"
+          style={{
+            position: 'absolute',
+            left: 0,
+            right: 0,
+            bottom: 0,
+            padding: 14,
+            gap: 10,
+          }}
+        >
+          {probTopK.length > 0 && !busy && (
+            <View style={{ backgroundColor: 'rgba(0,0,0,0.55)', borderRadius: 12, padding: 12 }}>
+              <FlatList
+                data={probTopK}
+                keyExtractor={(item, idx) => `${item.label}_${idx}`}
+                renderItem={({ item }) => (
+                  <View
+                    style={{
+                      flexDirection: 'row',
+                      justifyContent: 'space-between',
+                      paddingVertical: 6,
+                    }}
+                  >
+                    <Text style={{ color: FG, fontSize: 15 }}>{item.label}</Text>
+                    <Text style={{ color: FG_MUTED }}>{(item.p * 100).toFixed(1)}%</Text>
+                  </View>
+                )}
+              />
+            </View>
+          )}
 
         <View
           pointerEvents="box-none"
