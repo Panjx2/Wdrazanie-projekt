@@ -1,14 +1,14 @@
 // App.jsx — dokładność priorytet, ONNX z external data, Resize 224×224 + Normalize
 import 'react-native-reanimated';
-import React from 'react';
-import { SafeAreaView, View, Text, Pressable, Image, ActivityIndicator, FlatList } from 'react-native';
+import React, { useCallback, useEffect } from 'react';
+import { SafeAreaView, View, Text, Pressable, ActivityIndicator, FlatList } from 'react-native';
 import { CameraView } from 'expo-camera';
 
 import { useCatClassifier } from './src/hooks/useCatClassifier';
 import { useCameraLoop } from './src/hooks/useCameraLoop';
 import { COLORS } from './src/config/constants';
 
-const { BG, FG, FG_MUTED, ACCENT, BORDER } = COLORS;
+const { BG, FG, FG_MUTED, BORDER } = COLORS;
 
 export default function App() {
   const {
@@ -16,10 +16,8 @@ export default function App() {
     updateStatus,
     busy,
     ready,
-    previewUri,
     setPreviewUri,
     probTopK,
-    pickImage,
     reloadModel,
     classifyBase64,
     resizeTo224Base64,
@@ -28,7 +26,7 @@ export default function App() {
     err,
   } = useCatClassifier();
 
-  const { cameraActive, toggleCamera, cameraRef, permission, handleCameraReady, handleMountError } =
+  const { cameraActive, startCamera, stopCamera, cameraRef, permission, handleCameraReady, handleMountError } =
     useCameraLoop({
       ready,
       updateStatus,
@@ -40,111 +38,71 @@ export default function App() {
       err,
     });
 
+  useEffect(() => {
+    if (ready) {
+      void startCamera();
+    }
+  }, [ready, startCamera]);
+
+  const handleReloadModel = useCallback(async () => {
+    stopCamera();
+    await reloadModel();
+    void startCamera();
+  }, [reloadModel, startCamera, stopCamera]);
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: BG }}>
-      <View style={{ padding: 16, gap: 12 }}>
-        <Text style={{ color: FG, fontSize: 28, fontWeight: '800' }}>🐱 Cat Classifier (ONNX)</Text>
-        <Text style={{ color: ready ? '#6ee17a' : FG_MUTED }}>☑ {status}</Text>
+      <View style={{ flex: 1, padding: 16, gap: 12 }}>
+        <View style={{ gap: 6 }}>
+          <Text style={{ color: FG, fontSize: 28, fontWeight: '800' }}>🐱 Cat Classifier (ONNX)</Text>
+          <Text style={{ color: ready ? '#6ee17a' : FG_MUTED }}>☑ {status}</Text>
+        </View>
 
-        <View style={{ flexDirection: 'row', gap: 12 }}>
-          {/*<Pressable*/}
-          {/*  onPress={() => {*/}
-          {/*    void pickImage();*/}
-          {/*  }}*/}
-          {/*  disabled={!ready || busy}*/}
-          {/*  style={{*/}
-          {/*    backgroundColor: ready && !busy ? ACCENT : '#3a3a3a',*/}
-          {/*    padding: 14,*/}
-          {/*    borderRadius: 16,*/}
-          {/*    alignItems: 'center',*/}
-          {/*    flex: 1,*/}
-          {/*    opacity: ready && !busy ? 1 : 0.7,*/}
-          {/*  }}*/}
-          {/*>*/}
-          {/*  <Text style={{ color: FG, fontSize: 18, fontWeight: '700' }}>Wybierz zdjęcie</Text>*/}
-          {/*</Pressable>*/}
-
+        <View style={{ flexDirection: 'row', justifyContent: 'flex-end' }}>
           <Pressable
             onPress={() => {
-              void toggleCamera();
-            }}
-            disabled={!ready || busy}
-            style={{
-              backgroundColor: cameraActive ? '#b91c1c' : '#2c2c2c',
-              padding: 14,
-              borderRadius: 16,
-              alignItems: 'center',
-              width: 150,
-              opacity: ready && !busy ? 1 : 0.7,
-            }}
-          >
-            <Text style={{ color: FG, fontSize: 16, fontWeight: '600' }}>
-              {cameraActive ? '🔚 Wyłącz kamerę' : '📷 Podgląd kamery'}
-            </Text>
-          </Pressable>
-
-          <Pressable
-            onPress={() => {
-              void reloadModel();
+              void handleReloadModel();
             }}
             disabled={busy}
             style={{
               backgroundColor: '#2c2c2c',
-              padding: 14,
+              paddingHorizontal: 16,
+              paddingVertical: 12,
               borderRadius: 16,
               alignItems: 'center',
-              width: 140,
+              width: 170,
             }}
           >
             <Text style={{ color: FG, fontSize: 16, fontWeight: '600' }}>🔁 Przeładuj model</Text>
+            <Text style={{ color: FG_MUTED, fontSize: 12 }}>kamerka pauzuje na chwilę</Text>
           </Pressable>
         </View>
 
-        {cameraActive && (
-          <View
-            style={{
-              marginTop: 12,
-              borderRadius: 16,
-              overflow: 'hidden',
-              borderWidth: 1,
-              borderColor: BORDER,
-              height: 320,
-            }}
-          >
-            {permission?.granted ? (
-              <CameraView
-                ref={cameraRef}
-                style={{ flex: 1 }}
-                facing="back"
-                mode="picture"
-                animateShutter={false}
-                onCameraReady={handleCameraReady}
-                onMountError={handleMountError}
-              />
-            ) : (
-              <View
-                style={{
-                  flex: 1,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  backgroundColor: '#1a1a1a',
-                  padding: 16,
-                }}
-              >
-                <Text style={{ color: FG_MUTED, textAlign: 'center' }}>
-                  Aby korzystać z podglądu, udziel dostępu do kamery w ustawieniach systemu.
-                </Text>
-              </View>
-            )}
+        {!permission?.granted && (
+          <View style={{ padding: 12, borderRadius: 12, backgroundColor: '#1a1a1a', marginTop: 4 }}>
+            <Text style={{ color: FG_MUTED }}>
+              Udziel dostępu do aparatu w ustawieniach systemu, aby wykonywać klasyfikację w tle.
+            </Text>
           </View>
         )}
 
-        {previewUri && !cameraActive && (
-          <Image
-            source={{ uri: previewUri }}
-            style={{ width: 224, height: 224, borderRadius: 16, alignSelf: 'center', marginTop: 10 }}
+        {cameraActive && permission?.granted && (
+          <CameraView
+            ref={cameraRef}
+            style={{ width: 1, height: 1, opacity: 0 }}
+            facing="back"
+            mode="picture"
+            animateShutter={false}
+            onCameraReady={handleCameraReady}
+            onMountError={handleMountError}
           />
         )}
+
+        <View style={{ padding: 12, borderRadius: 12, backgroundColor: '#1a1a1a', marginTop: 4 }}>
+          <Text style={{ color: FG_MUTED }}>
+            Podgląd aparatu został wyłączony. Zdjęcia są wykonywane automatycznie w tle dla klasyfikacji.
+          </Text>
+        </View>
 
         {busy && (
           <View style={{ marginTop: 16, alignItems: 'center' }}>
