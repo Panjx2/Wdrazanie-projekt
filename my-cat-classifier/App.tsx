@@ -164,6 +164,39 @@ export default function App() {
             </View>
           )}
 
+        <View
+          pointerEvents="box-none"
+          style={{
+            position: 'absolute',
+            left: 0,
+            right: 0,
+            bottom: 0,
+            padding: 14,
+            gap: 10,
+          }}
+        >
+          {probTopK.length > 0 && !busy && (
+            <View style={{ backgroundColor: 'rgba(0,0,0,0.55)', borderRadius: 12, padding: 12 }}>
+              <FlatList
+                data={probTopK}
+                keyExtractor={(item, idx) => `${item.label}_${idx}`}
+                renderItem={({ item }) => (
+                  <View
+                    style={{
+                      flexDirection: 'row',
+                      justifyContent: 'space-between',
+                      paddingVertical: 6,
+                    }}
+                  >
+                    <Text style={{ color: FG, fontSize: 15 }}>{item.label}</Text>
+                    <Text style={{ color: FG_MUTED }}>{(item.p * 100).toFixed(1)}%</Text>
+                  </View>
+                )}
+              />
+            </View>
+          )}
+
+        <View style={{ flexDirection: 'row', justifyContent: 'flex-end' }}>
           <Pressable
             onPress={() => {
               void handleReloadModel();
@@ -180,6 +213,7 @@ export default function App() {
             }}
           >
             <Text style={{ color: FG, fontSize: 16, fontWeight: '600' }}>🔁 Przeładuj model</Text>
+            <Text style={{ color: FG_MUTED, fontSize: 12 }}>kamerka pauzuje na chwilę</Text>
           </Pressable>
         </View>
       </View>
