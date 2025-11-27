@@ -156,6 +156,7 @@ export default function App() {
             </View>
           )}
 
+        <View style={{ flexDirection: 'row', justifyContent: 'flex-end' }}>
           <Pressable
             onPress={() => {
               void handleReloadModel();
@@ -172,6 +173,7 @@ export default function App() {
             }}
           >
             <Text style={{ color: FG, fontSize: 16, fontWeight: '600' }}>🔁 Przeładuj model</Text>
+            <Text style={{ color: FG_MUTED, fontSize: 12 }}>kamerka pauzuje na chwilę</Text>
           </Pressable>
         </View>
       </View>
