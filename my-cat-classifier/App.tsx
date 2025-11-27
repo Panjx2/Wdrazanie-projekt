@@ -52,82 +52,56 @@ export default function App() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: BG }}>
-      <View style={{ flex: 1 }}>
-        <View
-          style={{
-            flex: 1,
-            margin: 12,
-            borderRadius: 20,
-            overflow: 'hidden',
-            backgroundColor: '#000',
-          }}
-        >
-          {cameraActive && permission?.granted ? (
-            <CameraView
-              ref={cameraRef}
-              style={{ flex: 1 }}
-              facing="back"
-              mode="picture"
-              animateShutter={false}
-              onCameraReady={handleCameraReady}
-              onMountError={handleMountError}
-            />
-          ) : (
-            <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-              <Text style={{ color: FG_MUTED, fontSize: 16, textAlign: 'center', paddingHorizontal: 16 }}>
-                {permission?.granted
-                  ? 'Uruchamianie podglądu…'
-                  : 'Udziel dostępu do aparatu w ustawieniach systemu, aby włączyć pełnoekranowy podgląd.'}
-              </Text>
-            </View>
-          )}
+      <View style={{ flex: 1, padding: 16, gap: 12 }}>
+        <View style={{ gap: 6 }}>
+          <Text style={{ color: FG, fontSize: 28, fontWeight: '800' }}>🐱 Cat Classifier (ONNX)</Text>
+          <Text style={{ color: ready ? '#6ee17a' : FG_MUTED }}>☑ {status}</Text>
+        </View>
 
-          <View
-            pointerEvents="box-none"
-            style={{ position: 'absolute', top: 0, left: 0, right: 0, padding: 16 }}
-          >
-            <Text style={{ color: FG, fontSize: 26, fontWeight: '800' }}>🐱 Cat Classifier (ONNX)</Text>
-            <Text style={{ color: ready ? '#6ee17a' : FG_MUTED, marginTop: 4 }}>☑ {status}</Text>
-          </View>
-
-          <View
-            pointerEvents="box-none"
+        <View style={{ flexDirection: 'row', justifyContent: 'flex-end' }}>
+          <Pressable
+            onPress={() => {
+              void handleReloadModel();
+            }}
+            disabled={busy}
             style={{
-              position: 'absolute',
-              left: 0,
-              right: 0,
-              bottom: 0,
-              padding: 16,
-              flexDirection: 'row',
-              justifyContent: 'space-between',
-              alignItems: 'flex-end',
-              gap: 12,
+              backgroundColor: '#2c2c2c',
+              paddingHorizontal: 16,
+              paddingVertical: 12,
+              borderRadius: 16,
+              alignItems: 'center',
+              width: 170,
             }}
           >
-            <View style={{ backgroundColor: '#111', padding: 12, borderRadius: 14, opacity: 0.9 }}>
-              <Text style={{ color: FG_MUTED, fontSize: 12 }}>Status</Text>
-              <Text style={{ color: FG, fontSize: 14, marginTop: 2 }}>{status}</Text>
-            </View>
+            <Text style={{ color: FG, fontSize: 16, fontWeight: '600' }}>🔁 Przeładuj model</Text>
+            <Text style={{ color: FG_MUTED, fontSize: 12 }}>kamerka pauzuje na chwilę</Text>
+          </Pressable>
+        </View>
 
-            <Pressable
-              onPress={() => {
-                void handleReloadModel();
-              }}
-              disabled={busy}
-              style={{
-                backgroundColor: '#2c2c2c',
-                paddingHorizontal: 16,
-                paddingVertical: 12,
-                borderRadius: 16,
-                alignItems: 'center',
-                minWidth: 170,
-                opacity: busy ? 0.8 : 1,
-              }}
-            >
-              <Text style={{ color: FG, fontSize: 16, fontWeight: '600' }}>🔁 Przeładuj model</Text>
-              <Text style={{ color: FG_MUTED, fontSize: 12 }}>podgląd pauzuje na chwilę</Text>
-            </Pressable>
+        {!permission?.granted && (
+          <View style={{ padding: 12, borderRadius: 12, backgroundColor: '#1a1a1a', marginTop: 4 }}>
+            <Text style={{ color: FG_MUTED }}>
+              Udziel dostępu do aparatu w ustawieniach systemu, aby wykonywać klasyfikację w tle.
+            </Text>
           </View>
+        )}
+
+        {cameraActive && permission?.granted && (
+          <CameraView
+            ref={cameraRef}
+            style={{ width: 1, height: 1, opacity: 0 }}
+            facing="back"
+            mode="picture"
+            animateShutter={false}
+            onCameraReady={handleCameraReady}
+            onMountError={handleMountError}
+          />
+        )}
+
+        <View style={{ padding: 12, borderRadius: 12, backgroundColor: '#1a1a1a', marginTop: 4 }}>
+          <Text style={{ color: FG_MUTED }}>
+            Podgląd aparatu został wyłączony. Zdjęcia są wykonywane automatycznie w tle dla klasyfikacji.
+          </Text>
         </View>
 
         {busy && (
