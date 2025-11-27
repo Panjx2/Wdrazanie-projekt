@@ -47,22 +47,22 @@ export default function App() {
         <Text style={{ color: ready ? '#6ee17a' : FG_MUTED }}>☑ {status}</Text>
 
         <View style={{ flexDirection: 'row', gap: 12 }}>
-          <Pressable
-            onPress={() => {
-              void pickImage();
-            }}
-            disabled={!ready || busy}
-            style={{
-              backgroundColor: ready && !busy ? ACCENT : '#3a3a3a',
-              padding: 14,
-              borderRadius: 16,
-              alignItems: 'center',
-              flex: 1,
-              opacity: ready && !busy ? 1 : 0.7,
-            }}
-          >
-            <Text style={{ color: FG, fontSize: 18, fontWeight: '700' }}>Wybierz zdjęcie</Text>
-          </Pressable>
+          {/*<Pressable*/}
+          {/*  onPress={() => {*/}
+          {/*    void pickImage();*/}
+          {/*  }}*/}
+          {/*  disabled={!ready || busy}*/}
+          {/*  style={{*/}
+          {/*    backgroundColor: ready && !busy ? ACCENT : '#3a3a3a',*/}
+          {/*    padding: 14,*/}
+          {/*    borderRadius: 16,*/}
+          {/*    alignItems: 'center',*/}
+          {/*    flex: 1,*/}
+          {/*    opacity: ready && !busy ? 1 : 0.7,*/}
+          {/*  }}*/}
+          {/*>*/}
+          {/*  <Text style={{ color: FG, fontSize: 18, fontWeight: '700' }}>Wybierz zdjęcie</Text>*/}
+          {/*</Pressable>*/}
 
           <Pressable
             onPress={() => {
