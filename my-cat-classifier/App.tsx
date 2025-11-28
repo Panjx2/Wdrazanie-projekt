@@ -1,8 +1,15 @@
 // App.jsx — dokładność priorytet, ONNX z external data, Resize 224×224 + Normalize
 import 'react-native-reanimated';
-import React, { useCallback, useEffect } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { SafeAreaView, View, Text, Pressable, ActivityIndicator, FlatList } from 'react-native';
 import { CameraView } from 'expo-camera';
+import {
+  GestureHandlerRootView,
+  PinchGestureHandler,
+  State,
+  type PinchGestureHandlerGestureEvent,
+  type PinchGestureHandlerStateChangeEvent,
+} from 'react-native-gesture-handler';
 
 import { useCatClassifier } from './src/hooks/useCatClassifier';
 import { useCameraLoop } from './src/hooks/useCameraLoop';
@@ -25,6 +32,9 @@ export default function App() {
     warn,
     err,
   } = useCatClassifier();
+
+  const [zoom, setZoom] = useState(0);
+  const pinchStartZoomRef = useRef(0);
 
   const {
     cameraActive,
@@ -51,6 +61,53 @@ export default function App() {
     void startCamera();
   }, [startCamera]);
 
+  const clampZoom = useCallback((value: number) => Math.min(1, Math.max(0, value)), []);
+
+  const handlePinchGesture = useCallback(
+    (event: PinchGestureHandlerGestureEvent) => {
+      const scale = event.nativeEvent.scale;
+      if (Number.isFinite(scale)) {
+        const nextZoom = clampZoom(pinchStartZoomRef.current * scale);
+        setZoom(nextZoom);
+      }
+    },
+    [clampZoom]
+  );
+
+  const handlePinchStateChange = useCallback(
+    (event: PinchGestureHandlerStateChangeEvent) => {
+      if (event.nativeEvent.state === State.BEGAN) {
+        pinchStartZoomRef.current = zoom || 0;
+      }
+      if (event.nativeEvent.state === State.END || event.nativeEvent.state === State.CANCELLED) {
+        pinchStartZoomRef.current = zoom || 0;
+      }
+    },
+    [zoom]
+  );
+
+  const cameraComponent = useMemo(
+    () => (
+      <PinchGestureHandler
+        onGestureEvent={handlePinchGesture}
+        onHandlerStateChange={handlePinchStateChange}
+        shouldCancelWhenOutside={false}
+      >
+        <CameraView
+          ref={cameraRef}
+          style={{ flex: 1 }}
+          facing="back"
+          mode="picture"
+          animateShutter={false}
+          zoom={zoom}
+          onCameraReady={handleCameraReady}
+          onMountError={handleMountError}
+        />
+      </PinchGestureHandler>
+    ),
+    [cameraRef, handleCameraReady, handleMountError, handlePinchGesture, handlePinchStateChange, zoom]
+  );
+
   const handleReloadModel = useCallback(async () => {
     pauseCapture();
     await reloadModel();
@@ -61,25 +118,18 @@ export default function App() {
   }, [cameraActive, pauseCapture, reloadModel, resumeCapture, startCamera]);
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#000' }}>
-      <View style={{ flex: 1, backgroundColor: '#000' }}>
-        {permission?.granted ? (
-          <CameraView
-            ref={cameraRef}
-            style={{ flex: 1 }}
-            facing="back"
-            mode="picture"
-            animateShutter={false}
-            onCameraReady={handleCameraReady}
-            onMountError={handleMountError}
-          />
-        ) : (
-          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16 }}>
-            <Text style={{ color: FG_MUTED, fontSize: 16, textAlign: 'center' }}>
-              Udziel dostępu do aparatu w ustawieniach systemu, aby wyświetlić podgląd.
-            </Text>
-          </View>
-        )}
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: '#000' }}>
+        <View style={{ flex: 1, backgroundColor: '#000' }}>
+          {permission?.granted ? (
+            cameraComponent
+          ) : (
+            <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16 }}>
+              <Text style={{ color: FG_MUTED, fontSize: 16, textAlign: 'center' }}>
+                Udziel dostępu do aparatu w ustawieniach systemu, aby wyświetlić podgląd.
+              </Text>
+            </View>
+          )}
 
         {!cameraActive && permission?.granted && (
           <View
@@ -187,7 +237,8 @@ export default function App() {
             </Pressable>
           </View>
         </View>
-      </View>
-    </SafeAreaView>
+        </View>
+      </SafeAreaView>
+    </GestureHandlerRootView>
   );
 }
