@@ -20,10 +20,14 @@ const labels = require('../../assets/labels.json');
 const PROB_ALIASES = ['prob', 'probs', 'probabilities', 'softmax'];
 const LOGIT_ALIASES = ['logits', 'output'];
 
+const MODEL_BASENAME = 'mobilenetv3_finetuned';
+const ONNX_ASSET = require('../../assets/models/mobilenetv3_finetuned.onnx');
+const ONNX_DATA_ASSET = require('../../assets/models/mobilenetv3_finetuned.onnx.data');
+
 async function prepareOnnxWithExternalData() {
   const [onnxAsset, dataAsset] = await Asset.loadAsync([
-    require('../../assets/models/mobilenetv2_finetuned.onnx'),
-    require('../../assets/models/mobilenetv2_finetuned.onnx.data'),
+    ONNX_ASSET,
+    ONNX_DATA_ASSET,
   ]);
 
   const dir = FileSystem.cacheDirectory + 'ort-model/';
@@ -33,8 +37,8 @@ async function prepareOnnxWithExternalData() {
     // directory already exists
   }
 
-  const modelDst = dir + 'mobilenetv2_finetuned.onnx';
-  const dataDst = dir + 'mobilenetv2_finetuned.onnx.data';
+  const modelDst = `${dir}${MODEL_BASENAME}.onnx`;
+  const dataDst = `${dir}${MODEL_BASENAME}.onnx.data`;
 
   await FileSystem.copyAsync({ from: onnxAsset.localUri!, to: modelDst });
   await FileSystem.copyAsync({ from: dataAsset.localUri!, to: dataDst });
