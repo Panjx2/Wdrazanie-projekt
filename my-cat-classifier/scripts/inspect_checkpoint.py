@@ -1,7 +1,7 @@
 import torch, re
 from pathlib import Path
 
-IN_PTH = Path("assets/models/mobilenetv2_finetuned.pth")
+IN_PTH = Path("assets/models/mobilenetv3_finetuned.pth")
 obj = torch.load(IN_PTH, map_location="cpu")
 sd = obj.state_dict() if isinstance(obj, torch.nn.Module) else obj
 if isinstance(sd, dict) and "state_dict" in sd: sd = sd["state_dict"]
