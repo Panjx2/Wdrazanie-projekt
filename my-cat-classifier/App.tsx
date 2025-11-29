@@ -6,9 +6,12 @@ import { CameraView } from 'expo-camera';
 import {
   GestureHandlerRootView,
   PinchGestureHandler,
+  PanGestureHandler,
   State,
   type PinchGestureHandlerGestureEvent,
   type PinchGestureHandlerStateChangeEvent,
+  type PanGestureHandlerGestureEvent,
+  type PanGestureHandlerStateChangeEvent,
 } from 'react-native-gesture-handler';
 
 import { useCatClassifier } from './src/hooks/useCatClassifier';
@@ -35,6 +38,8 @@ export default function App() {
 
   const [zoom, setZoom] = useState(0);
   const pinchStartZoomRef = useRef(0);
+  const sliderStartZoomRef = useRef(0);
+  const sliderWidthRef = useRef(0);
 
   const {
     cameraActive,
@@ -81,6 +86,28 @@ export default function App() {
       }
       if (event.nativeEvent.state === State.END || event.nativeEvent.state === State.CANCELLED) {
         pinchStartZoomRef.current = zoom || 0;
+      }
+    },
+    [zoom]
+  );
+
+  const handleSliderGesture = useCallback(
+    (event: PanGestureHandlerGestureEvent) => {
+      if (sliderWidthRef.current <= 0) return;
+      const delta = event.nativeEvent.translationX / sliderWidthRef.current;
+      const nextZoom = clampZoom(sliderStartZoomRef.current + delta);
+      setZoom(nextZoom);
+    },
+    [clampZoom]
+  );
+
+  const handleSliderStateChange = useCallback(
+    (event: PanGestureHandlerStateChangeEvent) => {
+      if (event.nativeEvent.state === State.BEGAN) {
+        sliderStartZoomRef.current = zoom || 0;
+      }
+      if (event.nativeEvent.state === State.END || event.nativeEvent.state === State.CANCELLED) {
+        sliderStartZoomRef.current = zoom || 0;
       }
     },
     [zoom]
@@ -195,6 +222,55 @@ export default function App() {
             gap: 10,
           }}
         >
+          <View style={{ backgroundColor: 'rgba(0,0,0,0.55)', borderRadius: 12, padding: 12, gap: 10 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={{ color: FG, fontSize: 14, fontWeight: '600' }}>Zoom</Text>
+              <Text style={{ color: FG_MUTED, fontSize: 12 }}>{Math.round(zoom * 100)}%</Text>
+            </View>
+            <PanGestureHandler
+              onGestureEvent={handleSliderGesture}
+              onHandlerStateChange={handleSliderStateChange}
+              minDist={0}
+            >
+              <View
+                onLayout={(event) => {
+                  sliderWidthRef.current = event.nativeEvent.layout.width;
+                }}
+                style={{
+                  height: 28,
+                  borderRadius: 14,
+                  backgroundColor: 'rgba(255,255,255,0.08)',
+                  overflow: 'hidden',
+                  justifyContent: 'center',
+                }}
+              >
+                <View
+                  style={{
+                    position: 'absolute',
+                    left: 0,
+                    top: 0,
+                    bottom: 0,
+                    width: `${zoom * 100}%`,
+                    backgroundColor: 'rgba(255,255,255,0.25)',
+                  }}
+                />
+                <View
+                  style={{
+                    position: 'absolute',
+                    left: `${zoom * 100}%`,
+                    marginLeft: -8,
+                    width: 16,
+                    height: 16,
+                    borderRadius: 8,
+                    backgroundColor: '#fff',
+                    borderWidth: 1,
+                    borderColor: 'rgba(0,0,0,0.35)',
+                  }}
+                />
+              </View>
+            </PanGestureHandler>
+          </View>
+
           {probTopK.length > 0 && !busy && (
             <View style={{ backgroundColor: 'rgba(0,0,0,0.55)', borderRadius: 12, padding: 12 }}>
               <FlatList
