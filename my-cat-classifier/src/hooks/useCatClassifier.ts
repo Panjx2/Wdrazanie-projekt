@@ -6,29 +6,30 @@ import * as ImageManipulator from 'expo-image-manipulator';
 import { Asset } from 'expo-asset';
 import * as FileSystem from 'expo-file-system';
 
-import { chwFromBase64JPEG224 } from '../utils/preprocess';
-import {
-  CAMERA_STATUS_INTERVAL_MS,
-  IMAGENET_MEAN,
-  IMAGENET_STD,
-  USE_BGR,
-  USE_PNG_LOSSLESS,
-} from '../config/constants';
+import { chwFromBase64JPEG } from '../utils/preprocess';
+import { decodeYoloOutput, type YoloDetection } from '../utils/yoloPostprocess';
+import { CAMERA_STATUS_INTERVAL_MS, USE_PNG_LOSSLESS } from '../config/constants';
+import { MODEL, MODEL_KIND } from '../config/modelConfig';
 
-const labels = require('../../assets/labels.json');
+const labels = MODEL.labels;
 
 const PROB_ALIASES = ['prob', 'probs', 'probabilities', 'softmax'];
 const LOGIT_ALIASES = ['logits', 'output'];
 
-const MODEL_BASENAME = 'mobilenetv3_finetuned';
-const ONNX_ASSET = require('../../assets/models/mobilenetv3_finetuned.onnx');
-const ONNX_DATA_ASSET = require('../../assets/models/mobilenetv3_finetuned.onnx.data');
+const MODEL_BASENAME = MODEL.basename;
+const ONNX_ASSET = MODEL.onnxAsset;
+const ONNX_DATA_ASSET = MODEL.onnxDataAsset;
 
 async function prepareOnnxWithExternalData() {
-  const [onnxAsset, dataAsset] = await Asset.loadAsync([
-    ONNX_ASSET,
-    ONNX_DATA_ASSET,
-  ]);
+  if (!ONNX_ASSET) {
+    throw new Error(
+      'Brak pliku modelu. Dodaj swój plik ONNX do assets/models i uzupełnij config w src/config/modelConfig.ts'
+    );
+  }
+
+  const assetsToLoad = [ONNX_ASSET, ONNX_DATA_ASSET].filter(Boolean) as number[];
+  const loaded = await Asset.loadAsync(assetsToLoad);
+  const [onnxAsset, dataAsset] = loaded;
 
   const dir = FileSystem.cacheDirectory + 'ort-model/';
   try {
@@ -38,10 +39,12 @@ async function prepareOnnxWithExternalData() {
   }
 
   const modelDst = `${dir}${MODEL_BASENAME}.onnx`;
-  const dataDst = `${dir}${MODEL_BASENAME}.onnx.data`;
-
   await FileSystem.copyAsync({ from: onnxAsset.localUri!, to: modelDst });
-  await FileSystem.copyAsync({ from: dataAsset.localUri!, to: dataDst });
+
+  if (dataAsset?.localUri) {
+    const dataDst = `${dir}${MODEL_BASENAME}.onnx.data`;
+    await FileSystem.copyAsync({ from: dataAsset.localUri, to: dataDst });
+  }
 
   return modelDst;
 }
@@ -58,6 +61,10 @@ type ClassifyOptions = {
   silent?: boolean;
 };
 
+type ClassifyResult =
+  | { kind: 'classification'; topK: Array<{ label: string; p: number }> }
+  | { kind: 'yolo'; detections: YoloDetection[] };
+
 type CatClassifierHook = {
   status: string;
   updateStatus: (value: string) => void;
@@ -66,12 +73,14 @@ type CatClassifierHook = {
   previewUri: string | null;
   setPreviewUri: (uri: string | null) => void;
   probTopK: Array<{ label: string; p: number }>;
+  detections: YoloDetection[];
   pickImage: () => Promise<void>;
   reloadModel: () => Promise<void>;
-  classifyBase64: (jpegBase64: string, options?: ClassifyOptions) => Promise<
-    Array<{ label: string; p: number }> | null
-  >;
-  resizeTo224Base64: (uri: string, context: 'gallery' | 'camera') => Promise<ResizeResult>;
+  classifyBase64: (
+    jpegBase64: string,
+    options?: ClassifyOptions
+  ) => Promise<ClassifyResult | null>;
+  resizeToModelBase64: (uri: string, context: 'gallery' | 'camera') => Promise<ResizeResult>;
   resetSilentStatus: () => void;
   log: (...args: unknown[]) => void;
   warn: (...args: unknown[]) => void;
@@ -84,9 +93,13 @@ export function useCatClassifier(): CatClassifierHook {
   const [ready, setReady] = useState(false);
   const [previewUri, setPreviewUri] = useState<string | null>(null);
   const [probTopK, setProbTopK] = useState<Array<{ label: string; p: number }>>([]);
+  const [detections, setDetections] = useState<YoloDetection[]>([]);
 
   const sessionRef = useRef<ort.InferenceSession | null>(null);
-  const lastSilentStatusRef = useRef<{ label: string; timestamp: number }>({ label: '', timestamp: 0 });
+  const lastSilentStatusRef = useRef<{ label: string; timestamp: number }>({
+    label: '',
+    timestamp: 0,
+  });
 
   const log = useCallback((...args: unknown[]) => console.log('[CatApp]', ...args), []);
   const warn = useCallback((...args: unknown[]) => console.warn('[CatApp]', ...args), []);
@@ -107,10 +120,17 @@ export function useCatClassifier(): CatClassifierHook {
       }
 
       try {
-        const chw = chwFromBase64JPEG224(jpegBase64, IMAGENET_MEAN, IMAGENET_STD, USE_BGR);
+        const chw = chwFromBase64JPEG(
+          jpegBase64,
+          MODEL.inputWidth,
+          MODEL.inputHeight,
+          MODEL.mean,
+          MODEL.std,
+          MODEL.useBgr
+        );
 
         {
-          const size = 224 * 224;
+          const size = MODEL.inputWidth * MODEL.inputHeight;
           const mR = chw.slice(0, size).reduce((a, b) => a + b, 0) / size;
           const mG = chw.slice(size, 2 * size).reduce((a, b) => a + b, 0) / size;
           const mB = chw.slice(2 * size).reduce((a, b) => a + b, 0) / size;
@@ -118,7 +138,12 @@ export function useCatClassifier(): CatClassifierHook {
         }
 
         const inputName = session.inputNames?.[0] ?? 'input';
-        const tensor = new ort.Tensor('float32', chw, [1, 3, 224, 224]);
+        const tensor = new ort.Tensor('float32', chw, [
+          1,
+          3,
+          MODEL.inputHeight,
+          MODEL.inputWidth,
+        ]);
 
         const outputMap = await session.run({ [inputName]: tensor });
         const keys = Object.keys(outputMap);
@@ -132,47 +157,100 @@ export function useCatClassifier(): CatClassifierHook {
         if (!outT?.data) throw new Error(`Puste wyjście modelu "${outName}"`);
         const data = outT.data as Float32Array;
 
-        let probs: number[];
-        if (PROB_ALIASES.includes(outName)) {
-          probs = Array.from(data);
-        } else {
-          let max = -Infinity;
-          for (let i = 0; i < data.length; i += 1) if (data[i] > max) max = data[i];
-          const exps = new Float32Array(data.length);
-          let sum = 0;
-          for (let i = 0; i < data.length; i += 1) {
-            const value = Math.exp(data[i] - max);
-            exps[i] = value;
-            sum += value;
+        if (MODEL.kind === 'classification') {
+          let probs: number[];
+          if (PROB_ALIASES.includes(outName)) {
+            probs = Array.from(data);
+          } else {
+            let max = -Infinity;
+            for (let i = 0; i < data.length; i += 1) if (data[i] > max) max = data[i];
+            const exps = new Float32Array(data.length);
+            let sum = 0;
+            for (let i = 0; i < data.length; i += 1) {
+              const value = Math.exp(data[i] - max);
+              exps[i] = value;
+              sum += value;
+            }
+            probs = Array.from(exps, value => value / (sum || 1));
           }
-          probs = Array.from(exps, value => value / (sum || 1));
+
+          const rawTop = topK(probs, 3).map(({ i, p }) => ({
+            label: labels[i] ?? `cls_${i}`,
+            p,
+          }));
+
+          const top = rawTop.map((item, idx) =>
+            idx === 0 && item.p < 0.3 ? { ...item, label: 'Unknown' } : item
+          );
+
+          setDetections([]);
+          setProbTopK(top);
+          if (!silent) {
+            setStatus('✅ Gotowe');
+          } else if (top.length > 0) {
+            const best = top[0];
+            const now = Date.now();
+            const shouldUpdate =
+              best.label !== lastSilentStatusRef.current.label ||
+              now - lastSilentStatusRef.current.timestamp > CAMERA_STATUS_INTERVAL_MS;
+            if (shouldUpdate) {
+              setStatus(`📸 Kamera: ${best.label} ${(best.p * 100).toFixed(1)}%`);
+              lastSilentStatusRef.current = { label: best.label, timestamp: now };
+            }
+          }
+          log(
+            'TOP-3:',
+            top.map(t => `${t.label}: ${(t.p * 100).toFixed(1)}%`).join(', ')
+          );
+          return { kind: 'classification', topK: top } satisfies ClassifyResult;
         }
 
-        const rawTop = topK(probs, 3).map(({ i, p }) => ({
-          label: labels[i] ?? `cls_${i}`,
-          p,
-        }));
+        const detectionsDecoded = decodeYoloOutput(data, {
+          numClasses: labels.length,
+          inputWidth: MODEL.inputWidth,
+          inputHeight: MODEL.inputHeight,
+          confThreshold: MODEL.confThreshold,
+          iouThreshold: MODEL.iouThreshold,
+          maxDetections: MODEL.maxDetections,
+          labels,
+          layout: MODEL.outputLayout,
+        });
 
-        const top = rawTop.map((item, idx) =>
-          idx === 0 && item.p < 0.3 ? { ...item, label: 'Unknown' } : item
-        );
+        setProbTopK([]);
+        setDetections(detectionsDecoded);
 
-        setProbTopK(top);
         if (!silent) {
           setStatus('✅ Gotowe');
-        } else if (top.length > 0) {
-          const best = top[0];
+        } else {
+          const best = detectionsDecoded[0];
           const now = Date.now();
+          const label = best
+            ? `${best.label} ${(best.score * 100).toFixed(1)}%`
+            : 'brak detekcji';
           const shouldUpdate =
-            best.label !== lastSilentStatusRef.current.label ||
+            label !== lastSilentStatusRef.current.label ||
             now - lastSilentStatusRef.current.timestamp > CAMERA_STATUS_INTERVAL_MS;
           if (shouldUpdate) {
-            setStatus(`📸 Kamera: ${best.label} ${(best.p * 100).toFixed(1)}%`);
-            lastSilentStatusRef.current = { label: best.label, timestamp: now };
+            setStatus(`📸 Kamera: ${label}`);
+            lastSilentStatusRef.current = { label, timestamp: now };
           }
         }
-        log('TOP-3:', top.map(t => `${t.label}: ${(t.p * 100).toFixed(1)}%`).join(', '));
-        return top;
+
+        log(
+          'Detekcje:',
+          detectionsDecoded
+            .map(
+              det =>
+                `${det.label} ${(det.score * 100).toFixed(1)}% @ [${det.box.x1.toFixed(
+                  2
+                )},${det.box.y1.toFixed(2)}]-[${det.box.x2.toFixed(
+                  2
+                )},${det.box.y2.toFixed(2)}]`
+            )
+            .join(' | ')
+        );
+
+        return { kind: 'yolo', detections: detectionsDecoded } satisfies ClassifyResult;
       } catch (e: any) {
         err('Błąd klasyfikacji:', e?.message || e);
         if (!silent) {
@@ -191,17 +269,21 @@ export function useCatClassifier(): CatClassifierHook {
     [err, log, warn]
   );
 
-  const resizeTo224Base64 = useCallback<CatClassifierHook['resizeTo224Base64']>(
+  const resizeToModelBase64 = useCallback<CatClassifierHook['resizeToModelBase64']>(
     async (uri, context) => {
       const outFormat = USE_PNG_LOSSLESS
         ? ImageManipulator.SaveFormat.PNG
         : ImageManipulator.SaveFormat.JPEG;
       try {
-        const resized = await ImageManipulator.manipulateAsync(uri, [{ resize: { width: 224, height: 224 } }], {
-          compress: USE_PNG_LOSSLESS ? 1 : 0.95,
-          format: outFormat,
-          base64: true,
-        });
+        const resized = await ImageManipulator.manipulateAsync(
+          uri,
+          [{ resize: { width: MODEL.inputWidth, height: MODEL.inputHeight } }],
+          {
+            compress: USE_PNG_LOSSLESS ? 1 : 0.95,
+            format: outFormat,
+            base64: true,
+          }
+        );
         if (!resized.base64) {
           throw new Error('Brak base64 po przetwarzaniu');
         }
@@ -239,10 +321,10 @@ export function useCatClassifier(): CatClassifierHook {
       const uri = res.assets[0].uri;
       log('Wybrano:', uri);
 
-      setStatus('🛠️ Resize 224×224…');
+      setStatus(`🛠️ Resize ${MODEL.inputWidth}×${MODEL.inputHeight}…`);
       console.time('Resize+Base64');
 
-      const resized = await resizeTo224Base64(uri, 'gallery');
+      const resized = await resizeToModelBase64(uri, 'gallery');
       console.timeEnd('Resize+Base64');
 
       setPreviewUri(resized.uri);
@@ -252,7 +334,7 @@ export function useCatClassifier(): CatClassifierHook {
       setStatus('❌ Błąd obrazu');
       Alert.alert('Image error', String(e?.message || e));
     }
-  }, [classifyBase64, err, log, resizeTo224Base64]);
+  }, [classifyBase64, err, log, resizeToModelBase64]);
 
   const resetSilentStatus = useCallback(() => {
     lastSilentStatusRef.current = { label: '', timestamp: 0 };
@@ -278,11 +360,11 @@ export function useCatClassifier(): CatClassifierHook {
 
       log('Input names:', sessionRef.current.inputNames ?? []);
       log('Output names:', sessionRef.current.outputNames ?? []);
-      setStatus('✅ Gotowe');
+      setStatus('✅ Model gotowy');
       setReady(true);
     } catch (e: any) {
-      err('Błąd ładowania modelu:', e?.message || e);
-      setStatus('❌ Błąd ładowania modelu');
+      err('Błąd modelu:', e?.message || e);
+      setStatus('❌ Błąd modelu');
       Alert.alert('Model error', String(e?.message || e));
     }
   }, [err, log]);
@@ -308,10 +390,11 @@ export function useCatClassifier(): CatClassifierHook {
       previewUri,
       setPreviewUri,
       probTopK,
+      detections,
       pickImage,
       reloadModel,
       classifyBase64,
-      resizeTo224Base64,
+      resizeToModelBase64,
       resetSilentStatus,
       log,
       warn,
@@ -324,10 +407,11 @@ export function useCatClassifier(): CatClassifierHook {
       ready,
       previewUri,
       probTopK,
+      detections,
       pickImage,
       reloadModel,
       classifyBase64,
-      resizeTo224Base64,
+      resizeToModelBase64,
       resetSilentStatus,
       log,
       warn,
