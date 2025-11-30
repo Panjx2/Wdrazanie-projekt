@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Platform } from 'react-native';
+import { Alert, NativeModules, Platform } from 'react-native';
 import * as ort from 'onnxruntime-react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
@@ -27,9 +27,46 @@ async function prepareOnnxWithExternalData() {
     );
   }
 
-  const assetsToLoad = [ONNX_ASSET, ONNX_DATA_ASSET].filter(Boolean) as number[];
-  const loaded = await Asset.loadAsync(assetsToLoad);
-  const [onnxAsset, dataAsset] = loaded;
+  const getDevServerOrigin = () => {
+    const scriptURL = NativeModules.SourceCode?.scriptURL;
+    if (!scriptURL) return null;
+
+    try {
+      const url = new URL(scriptURL);
+      return `${url.protocol}//${url.host}`;
+    } catch (e) {
+      console.warn('[CatApp] Nie mogę sparsować scriptURL:', e);
+      return null;
+    }
+  };
+
+  const ensureLocalAsset = async (moduleId: number) => {
+    const asset = Asset.fromModule(moduleId);
+    if (asset.localUri) return asset.localUri;
+
+    const origin = getDevServerOrigin();
+    const remoteUri = (() => {
+      if (!asset.uri) return null;
+      if (!origin) return asset.uri;
+      if (asset.uri.includes('://localhost')) {
+        return asset.uri.replace(/https?:\/\/localhost(?::\d+)?/, origin);
+      }
+      return asset.uri;
+    })();
+
+    if (!remoteUri) {
+      throw new Error('Brak URI assetu ONNX');
+    }
+
+    const downloadDst = `${FileSystem.cacheDirectory}${asset.fileName}`;
+    const result = await FileSystem.downloadAsync(remoteUri, downloadDst);
+    return result.uri;
+  };
+
+  const [onnxLocalUri, dataLocalUri] = await Promise.all([
+    ensureLocalAsset(ONNX_ASSET),
+    ONNX_DATA_ASSET ? ensureLocalAsset(ONNX_DATA_ASSET) : Promise.resolve(null),
+  ]);
 
   const dir = FileSystem.cacheDirectory + 'ort-model/';
   try {
@@ -39,11 +76,11 @@ async function prepareOnnxWithExternalData() {
   }
 
   const modelDst = `${dir}${MODEL_BASENAME}.onnx`;
-  await FileSystem.copyAsync({ from: onnxAsset.localUri!, to: modelDst });
+  await FileSystem.copyAsync({ from: onnxLocalUri!, to: modelDst });
 
-  if (dataAsset?.localUri) {
+  if (dataLocalUri) {
     const dataDst = `${dir}${MODEL_BASENAME}.onnx.data`;
-    await FileSystem.copyAsync({ from: dataAsset.localUri, to: dataDst });
+    await FileSystem.copyAsync({ from: dataLocalUri, to: dataDst });
   }
 
   return modelDst;
