@@ -31,7 +31,6 @@ export default function App() {
     probTopK,
     reloadModel,
     classifyBase64,
-    resizeTo224Base64,
     resetSilentStatus,
     warn,
     err,
@@ -59,13 +58,12 @@ export default function App() {
     ready,
     updateStatus,
     classifyBase64,
-    resizeTo224Base64,
+    resizeToModelBase64,
     resetSilentStatus,
     clearPreview: () => setPreviewUri(null),
     warn,
 
     err,
-    resizeToModelBase64,
   });
 
   useEffect(() => {
