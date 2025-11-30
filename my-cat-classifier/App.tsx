@@ -159,7 +159,8 @@ export default function App() {
               height: event.nativeEvent.layout.height,
             });
           }}
-        >          {permission?.granted ? (
+        >
+          {permission?.granted ? (
             cameraComponent
           ) : (
             <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16 }}>
