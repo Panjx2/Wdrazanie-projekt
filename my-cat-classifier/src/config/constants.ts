@@ -12,6 +12,6 @@ export const IMAGENET_STD = [0.229, 0.224, 0.225];
 export const USE_BGR = false;
 export const USE_PNG_LOSSLESS = false; // ustaw na true, by zapisać do PNG (dokładniejszy tensor, większy plik)
 
-export const CAMERA_CAPTURE_INTERVAL_MS = 200;
+export const CAMERA_CAPTURE_INTERVAL_MS = 10;
 export const CAMERA_QUALITY = 1;
-export const CAMERA_STATUS_INTERVAL_MS = 200; // jak często odświeżać status w trybie cichym
+export const CAMERA_STATUS_INTERVAL_MS = 10; // jak często odświeżać status w trybie cichym
