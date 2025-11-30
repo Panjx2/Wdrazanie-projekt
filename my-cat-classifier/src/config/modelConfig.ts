@@ -31,8 +31,9 @@ type YoloModelConfig = BaseModelConfig & {
 
 type ModelConfig = ClassificationModelConfig | YoloModelConfig;
 
-// Change to 'yolo' after adding your YOLO ONNX asset below.
-export const MODEL_KIND: ModelKind = 'classification';
+// Change MODEL_KIND to switch between classification and YOLO detection modes.
+// Default to YOLO so bounding boxes are rendered when detections are available.
+export const MODEL_KIND: ModelKind = 'yolo';
 
 const classificationModel: ClassificationModelConfig = {
   kind: 'classification',
