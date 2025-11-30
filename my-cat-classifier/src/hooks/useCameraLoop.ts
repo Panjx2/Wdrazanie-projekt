@@ -96,8 +96,7 @@ export function useCameraLoop({
     } finally {
       takingPictureRef.current = false;
     }
-  }, [cameraActive, cameraReady, capturePaused, classifyBase64, ready, resizeTo224Base64, warn]);
-
+  }, [cameraActive, cameraReady, capturePaused, classifyBase64, ready, resizeToModelBase64, warn]);
   const startCamera = useCallback(async () => {
     if (cameraActive) return;
 
