@@ -35,7 +35,7 @@ export default function App() {
     resetSilentStatus,
     warn,
     err,
-    detections
+    detections,
 
   } = useCatClassifier();
 
@@ -391,6 +391,7 @@ export default function App() {
               />
             </View>
           )}
+
         </View>
         </View>
       </SafeAreaView>
