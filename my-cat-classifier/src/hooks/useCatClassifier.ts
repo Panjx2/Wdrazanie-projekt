@@ -128,6 +128,25 @@ export function useCatClassifier(): CatClassifierHook {
   const warn = useCallback((...args: unknown[]) => console.warn('[CatApp]', ...args), []);
   const err = useCallback((...args: unknown[]) => console.error('[CatApp]', ...args), []);
 
+  const lastSummaryLogRef = useRef<{ message: string; timestamp: number }>({
+    message: '',
+    timestamp: 0,
+  });
+
+  const logResultSummary = useCallback(
+    (message: string) => {
+      const now = Date.now();
+      if (
+        message !== lastSummaryLogRef.current.message ||
+        now - lastSummaryLogRef.current.timestamp > 1500
+      ) {
+        log('[Wynik]', message);
+        lastSummaryLogRef.current = { message, timestamp: now };
+      }
+    },
+    [log]
+  );
+
   const classifyBase64 = useCallback(
     async (jpegBase64: string, { silent = false }: ClassifyOptions = {}) => {
       const session = sessionRef.current;
@@ -151,14 +170,6 @@ export function useCatClassifier(): CatClassifierHook {
           MODEL.std,
           MODEL.useBgr
         );
-
-        {
-          const size = MODEL.inputWidth * MODEL.inputHeight;
-          const mR = chw.slice(0, size).reduce((a, b) => a + b, 0) / size;
-          const mG = chw.slice(size, 2 * size).reduce((a, b) => a + b, 0) / size;
-          const mB = chw.slice(2 * size).reduce((a, b) => a + b, 0) / size;
-          log('CHW means (≈0):', mR.toFixed(3), mG.toFixed(3), mB.toFixed(3));
-        }
 
         const inputName = session.inputNames?.[0] ?? 'input';
         const tensor = new ort.Tensor('float32', chw, [
@@ -221,14 +232,12 @@ export function useCatClassifier(): CatClassifierHook {
               lastSilentStatusRef.current = { label: best.label, timestamp: now };
             }
           }
-          log(
-            'TOP-3:',
-            top.map(t => `${t.label}: ${(t.p * 100).toFixed(1)}%`).join(', ')
-          );
-          log(
-            'Inference summary:',
-            `Classification • ${top.map(t => `${t.label} ${(t.p * 100).toFixed(1)}%`).join(', ')}`
-          );
+          const summary = top.length
+            ? `Classification • ${top
+                .map(t => `${t.label} ${(t.p * 100).toFixed(1)}%`)
+                .join(', ')}`
+            : 'Classification • no prediction';
+          logResultSummary(summary);
           return { kind: 'classification', topK: top } satisfies ClassifyResult;
         }
 
@@ -246,13 +255,12 @@ export function useCatClassifier(): CatClassifierHook {
         setProbTopK([]);
         setDetections(detectionsDecoded);
 
-        const yoloSummary =
-          detectionsDecoded.length
-            ? `YOLO • ${detectionsDecoded
-                .map(det => `${det.label} ${(det.score * 100).toFixed(1)}%`)
-                .join(', ')}`
-            : 'YOLO • brak detekcji';
-        log('Inference summary:', yoloSummary);
+        const yoloSummary = detectionsDecoded.length
+          ? `YOLO • ${detectionsDecoded.length} boxes (best ${detectionsDecoded[0].label} ${(detectionsDecoded[0].score * 100).toFixed(
+              1
+            )}%)`
+          : 'YOLO • brak detekcji';
+        logResultSummary(yoloSummary);
 
         if (!silent) {
           setStatus('✅ Gotowe');
@@ -271,18 +279,18 @@ export function useCatClassifier(): CatClassifierHook {
           }
         }
 
-        log(
-          'Detekcje:',
-          detectionsDecoded
-            .map(
-              det =>
-                `${det.label} ${(det.score * 100).toFixed(1)}% @ [${det.box.x1.toFixed(
-                  2
-                )},${det.box.y1.toFixed(2)}]-[${det.box.x2.toFixed(
-                  2
-                )},${det.box.y2.toFixed(2)}]`
-            )
-            .join(' | ')
+        logResultSummary(
+          detectionsDecoded.length
+            ? `YOLO detale • ${detectionsDecoded
+                .slice(0, 3)
+                .map(
+                  det =>
+                    `${det.label} ${(det.score * 100).toFixed(1)}% @ [${det.box.x1.toFixed(
+                      2
+                    )},${det.box.y1.toFixed(2)}]-[${det.box.x2.toFixed(2)},${det.box.y2.toFixed(2)}]`
+                )
+                .join(' | ')}`
+            : 'YOLO detale • brak detekcji'
         );
 
         return { kind: 'yolo', detections: detectionsDecoded } satisfies ClassifyResult;
@@ -294,7 +302,7 @@ export function useCatClassifier(): CatClassifierHook {
         } else {
           setStatus('⚠️ Kamera: błąd klasyfikacji');
         }
-        log('Inference summary:', `Błąd klasyfikacji: ${e?.message || e}`);
+        logResultSummary(`Błąd klasyfikacji: ${e?.message || e}`);
       } finally {
         if (!silent) {
           setBusy(false);
@@ -302,7 +310,7 @@ export function useCatClassifier(): CatClassifierHook {
       }
       return null;
     },
-    [err, log, warn]
+    [err, logResultSummary, warn]
   );
 
   const resizeToModelBase64 = useCallback<CatClassifierHook['resizeToModelBase64']>(
@@ -382,6 +390,15 @@ export function useCatClassifier(): CatClassifierHook {
       setStatus('📦 Ładowanie modelu…');
 
       log('[Model] Rozpoczynam ładowanie modelu…');
+      log('[Model] Konfiguracja', {
+        kind: MODEL.kind,
+        basename: MODEL.basename,
+        input: `${MODEL.inputWidth}x${MODEL.inputHeight}`,
+        confThreshold: (MODEL as any).confThreshold,
+        iouThreshold: (MODEL as any).iouThreshold,
+        maxDetections: (MODEL as any).maxDetections,
+        outputLayout: (MODEL as any).outputLayout,
+      });
       const modelPath = await prepareOnnxWithExternalData(log, warn);
       log('Model local path:', modelPath);
 

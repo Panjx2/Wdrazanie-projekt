@@ -31,8 +31,8 @@ type YoloModelConfig = BaseModelConfig & {
 
 type ModelConfig = ClassificationModelConfig | YoloModelConfig;
 
-// Change MODEL_KIND to switch between classification and YOLO detection modes.
-// Default to YOLO so bounding boxes are rendered when detections are available.
+// The app is intended to run in YOLO detection mode by default.
+// Flip to 'classification' only if you explicitly need logits/top-k outputs.
 export const MODEL_KIND: ModelKind = 'yolo';
 
 const classificationModel: ClassificationModelConfig = {

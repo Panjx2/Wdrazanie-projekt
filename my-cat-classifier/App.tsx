@@ -46,6 +46,7 @@ export default function App() {
   const sliderWidthRef = useRef(0);
   const [cameraLayout, setCameraLayout] = useState({ width: 0, height: 0 });
   const overlayReasonRef = useRef('');
+  const overlayReasonTimeRef = useRef(0);
 
   const {
     cameraActive,
@@ -170,8 +171,12 @@ export default function App() {
       ).toFixed(1)}])`;
     })();
 
-    if (overlayReasonRef.current !== reason) {
+    const now = Date.now();
+    const hasChanged = overlayReasonRef.current !== reason;
+    const isStale = now - overlayReasonTimeRef.current > 2000;
+    if (hasChanged || isStale) {
       overlayReasonRef.current = reason;
+      overlayReasonTimeRef.current = now;
       log('[UI]', reason);
     }
   }, [busy, cameraLayout.height, cameraLayout.width, detections, log]);
