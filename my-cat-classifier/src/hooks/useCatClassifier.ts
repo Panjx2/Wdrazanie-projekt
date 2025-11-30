@@ -7,7 +7,7 @@ import { Asset } from 'expo-asset';
 import * as FileSystem from 'expo-file-system';
 
 import { chwFromBase64JPEG } from '../utils/preprocess';
-import { decodeYoloOutput, type YoloDetection } from '../utils/yoloPostprocess';
+import { decodeYoloOutput, type YoloDetection } from '../utils/postprocess';
 import { CAMERA_STATUS_INTERVAL_MS, USE_PNG_LOSSLESS } from '../config/constants';
 import { MODEL, MODEL_KIND } from '../config/modelConfig';
 
@@ -20,7 +20,10 @@ const MODEL_BASENAME = MODEL.basename;
 const ONNX_ASSET = MODEL.onnxAsset;
 const ONNX_DATA_ASSET = MODEL.onnxDataAsset;
 
-async function prepareOnnxWithExternalData() {
+async function prepareOnnxWithExternalData(
+  logFn: (...args: unknown[]) => void = console.log,
+  warnFn: (...args: unknown[]) => void = console.warn
+) {
   if (!ONNX_ASSET) {
     throw new Error(
       'Brak pliku modelu. Dodaj swój plik ONNX do assets/models i uzupełnij config w src/config/modelConfig.ts'
@@ -28,7 +31,23 @@ async function prepareOnnxWithExternalData() {
   }
 
   const assetsToLoad = [ONNX_ASSET, ONNX_DATA_ASSET].filter(Boolean) as number[];
-  const loaded = await Asset.loadAsync(assetsToLoad);
+  logFn('[Model] Ładowanie zasobów ONNX…', assetsToLoad);
+  let loaded: Asset[];
+  try {
+    loaded = await Asset.loadAsync(assetsToLoad);
+  } catch (e: any) {
+    warnFn('[Model] Asset.loadAsync error:', e?.message || e);
+    throw e;
+  }
+
+  loaded.forEach((asset, idx) => {
+    logFn('[Model] Załadowano asset', idx, {
+      name: asset.name,
+      uri: asset.uri,
+      localUri: asset.localUri,
+      type: asset.type,
+    });
+  });
   const [onnxAsset, dataAsset] = loaded;
 
   const dir = FileSystem.cacheDirectory + 'ort-model/';
@@ -40,10 +59,14 @@ async function prepareOnnxWithExternalData() {
 
   const modelDst = `${dir}${MODEL_BASENAME}.onnx`;
   await FileSystem.copyAsync({ from: onnxAsset.localUri!, to: modelDst });
+  const modelInfo = await FileSystem.getInfoAsync(modelDst, { size: true });
+  logFn('[Model] Skopiowano .onnx do cache', modelDst, modelInfo);
 
   if (dataAsset?.localUri) {
     const dataDst = `${dir}${MODEL_BASENAME}.onnx.data`;
     await FileSystem.copyAsync({ from: dataAsset.localUri, to: dataDst });
+    const dataInfo = await FileSystem.getInfoAsync(dataDst, { size: true });
+    logFn('[Model] Skopiowano .onnx.data do cache', dataDst, dataInfo);
   }
 
   return modelDst;
@@ -202,6 +225,10 @@ export function useCatClassifier(): CatClassifierHook {
             'TOP-3:',
             top.map(t => `${t.label}: ${(t.p * 100).toFixed(1)}%`).join(', ')
           );
+          log(
+            'Inference summary:',
+            `Classification • ${top.map(t => `${t.label} ${(t.p * 100).toFixed(1)}%`).join(', ')}`
+          );
           return { kind: 'classification', topK: top } satisfies ClassifyResult;
         }
 
@@ -218,6 +245,14 @@ export function useCatClassifier(): CatClassifierHook {
 
         setProbTopK([]);
         setDetections(detectionsDecoded);
+
+        const yoloSummary =
+          detectionsDecoded.length
+            ? `YOLO • ${detectionsDecoded
+                .map(det => `${det.label} ${(det.score * 100).toFixed(1)}%`)
+                .join(', ')}`
+            : 'YOLO • brak detekcji';
+        log('Inference summary:', yoloSummary);
 
         if (!silent) {
           setStatus('✅ Gotowe');
@@ -259,6 +294,7 @@ export function useCatClassifier(): CatClassifierHook {
         } else {
           setStatus('⚠️ Kamera: błąd klasyfikacji');
         }
+        log('Inference summary:', `Błąd klasyfikacji: ${e?.message || e}`);
       } finally {
         if (!silent) {
           setBusy(false);
@@ -345,7 +381,8 @@ export function useCatClassifier(): CatClassifierHook {
       setReady(false);
       setStatus('📦 Ładowanie modelu…');
 
-      const modelPath = await prepareOnnxWithExternalData();
+      log('[Model] Rozpoczynam ładowanie modelu…');
+      const modelPath = await prepareOnnxWithExternalData(log, warn);
       log('Model local path:', modelPath);
 
       setStatus('🧠 Tworzenie sesji ORT…');
@@ -364,10 +401,13 @@ export function useCatClassifier(): CatClassifierHook {
       setReady(true);
     } catch (e: any) {
       err('Błąd modelu:', e?.message || e);
+      if (e?.stack) {
+        warn('Stack trace:', e.stack);
+      }
       setStatus('❌ Błąd modelu');
       Alert.alert('Model error', String(e?.message || e));
     }
-  }, [err, log]);
+    }, [err, log, warn]);
 
   useEffect(() => {
     void loadModel();
