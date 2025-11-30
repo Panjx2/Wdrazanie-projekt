@@ -30,14 +30,32 @@ async function prepareOnnxWithExternalData(
     );
   }
 
+  const dir = FileSystem.cacheDirectory + 'ort-model/';
+  try {
+    await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
+  } catch (e) {
+    // directory already exists
+  }
+
   const assetsToLoad = [ONNX_ASSET, ONNX_DATA_ASSET].filter(Boolean) as number[];
   logFn('[Model] Ładowanie zasobów ONNX…', assetsToLoad);
-  let loaded: Asset[];
+  let loaded: Asset[] = [];
   try {
     loaded = await Asset.loadAsync(assetsToLoad);
   } catch (e: any) {
-    warnFn('[Model] Asset.loadAsync error:', e?.message || e);
-    throw e;
+    warnFn('[Model] Asset.loadAsync error, spróbuję pobrać ręcznie:', e?.message || e);
+    const fallbackAssets = assetsToLoad.map(moduleId => Asset.fromModule(moduleId));
+    for (const asset of fallbackAssets) {
+      const uri = asset.localUri ?? asset.uri;
+      if (!uri) {
+        warnFn('[Model] Brak URI assetu — przerwane pobieranie awaryjne');
+        throw e;
+      }
+      const dst = `${dir}${asset.name}.${asset.type ?? 'bin'}`;
+      warnFn('[Model] Pobieram asset przez FileSystem.downloadAsync', { uri, dst });
+      await FileSystem.downloadAsync(uri, dst);
+      loaded.push({ ...asset, localUri: dst } as Asset);
+    }
   }
 
   loaded.forEach((asset, idx) => {
@@ -49,13 +67,6 @@ async function prepareOnnxWithExternalData(
     });
   });
   const [onnxAsset, dataAsset] = loaded;
-
-  const dir = FileSystem.cacheDirectory + 'ort-model/';
-  try {
-    await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
-  } catch (e) {
-    // directory already exists
-  }
 
   const modelDst = `${dir}${MODEL_BASENAME}.onnx`;
   await FileSystem.copyAsync({ from: onnxAsset.localUri!, to: modelDst });
