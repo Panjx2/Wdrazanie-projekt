@@ -7,7 +7,7 @@ import { Asset } from 'expo-asset';
 import * as FileSystem from 'expo-file-system';
 
 import { chwFromBase64JPEG } from '../utils/preprocess';
-import { decodeYoloOutput, type YoloDetection } from '../utils/yoloPostprocess';
+import { decodeYoloOutput, type YoloDetection } from '../utils/postprocess';
 import { CAMERA_STATUS_INTERVAL_MS, USE_PNG_LOSSLESS } from '../config/constants';
 import { MODEL, MODEL_KIND } from '../config/modelConfig';
 
@@ -202,6 +202,10 @@ export function useCatClassifier(): CatClassifierHook {
             'TOP-3:',
             top.map(t => `${t.label}: ${(t.p * 100).toFixed(1)}%`).join(', ')
           );
+          log(
+            'Inference summary:',
+            `Classification • ${top.map(t => `${t.label} ${(t.p * 100).toFixed(1)}%`).join(', ')}`
+          );
           return { kind: 'classification', topK: top } satisfies ClassifyResult;
         }
 
@@ -218,6 +222,14 @@ export function useCatClassifier(): CatClassifierHook {
 
         setProbTopK([]);
         setDetections(detectionsDecoded);
+
+        const yoloSummary =
+          detectionsDecoded.length
+            ? `YOLO • ${detectionsDecoded
+                .map(det => `${det.label} ${(det.score * 100).toFixed(1)}%`)
+                .join(', ')}`
+            : 'YOLO • brak detekcji';
+        log('Inference summary:', yoloSummary);
 
         if (!silent) {
           setStatus('✅ Gotowe');
@@ -259,6 +271,7 @@ export function useCatClassifier(): CatClassifierHook {
         } else {
           setStatus('⚠️ Kamera: błąd klasyfikacji');
         }
+        log('Inference summary:', `Błąd klasyfikacji: ${e?.message || e}`);
       } finally {
         if (!silent) {
           setBusy(false);
