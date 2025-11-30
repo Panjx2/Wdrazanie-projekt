@@ -148,10 +148,14 @@ export function useCatClassifier(): CatClassifierHook {
           probs = Array.from(exps, value => value / (sum || 1));
         }
 
-        const top = topK(probs, 3).map(({ i, p }) => ({
+        const rawTop = topK(probs, 3).map(({ i, p }) => ({
           label: labels[i] ?? `cls_${i}`,
           p,
         }));
+
+        const top = rawTop.map((item, idx) =>
+          idx === 0 && item.p < 0.3 ? { ...item, label: 'Unknown' } : item
+        );
 
         setProbTopK(top);
         if (!silent) {

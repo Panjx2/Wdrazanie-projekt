@@ -188,6 +188,7 @@ export default function App() {
             flexDirection: 'row',
             justifyContent: 'space-between',
             alignItems: 'center',
+            gap: 10,
           }}
         >
           <View style={{ backgroundColor: 'rgba(0,0,0,0.45)', padding: 10, borderRadius: 12 }}>
@@ -202,12 +203,33 @@ export default function App() {
             )}
           </View>
 
-          {busy && (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <ActivityIndicator size="small" />
-              <Text style={{ color: FG, fontSize: 12 }}>Klasyfikuję…</Text>
-            </View>
-          )}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            {busy && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <ActivityIndicator size="small" />
+                <Text style={{ color: FG, fontSize: 12 }}>Klasyfikuję…</Text>
+              </View>
+            )}
+            <Pressable
+              onPress={() => {
+                void handleReloadModel();
+              }}
+              disabled={busy}
+              style={{
+                backgroundColor: 'rgba(0,0,0,0.65)',
+                paddingVertical: 10,
+                paddingHorizontal: 12,
+                borderRadius: 12,
+                alignItems: 'center',
+                borderWidth: 1,
+                borderColor: 'rgba(255,255,255,0.08)',
+                opacity: busy ? 0.75 : 1,
+              }}
+            >
+              <Text style={{ color: FG, fontSize: 14, fontWeight: '600' }}>🔁 Przeładuj model</Text>
+              <Text style={{ color: FG_MUTED, fontSize: 11 }}>kamerka pauzuje na chwilę</Text>
+            </Pressable>
+          </View>
         </View>
 
         {/* Bottom overlay: results + reload button */}
@@ -281,37 +303,16 @@ export default function App() {
                     style={{
                       flexDirection: 'row',
                       justifyContent: 'space-between',
-                      paddingVertical: 6,
+                      paddingVertical: 4,
                     }}
                   >
-                    <Text style={{ color: FG, fontSize: 15 }}>{item.label}</Text>
-                    <Text style={{ color: FG_MUTED }}>{(item.p * 100).toFixed(1)}%</Text>
+                    <Text style={{ color: FG, fontSize: 13, fontWeight: '600' }}>{item.label}</Text>
+                    <Text style={{ color: FG_MUTED, fontSize: 12 }}>{(item.p * 100).toFixed(1)}%</Text>
                   </View>
                 )}
               />
             </View>
           )}
-
-          <View style={{ flexDirection: 'row', justifyContent: 'flex-end' }}>
-            <Pressable
-              onPress={() => {
-                void handleReloadModel();
-              }}
-              disabled={busy}
-              style={{
-                backgroundColor: 'rgba(0,0,0,0.65)',
-                paddingVertical: 12,
-                borderRadius: 12,
-                alignItems: 'center',
-                borderWidth: 1,
-                borderColor: 'rgba(255,255,255,0.08)',
-                opacity: busy ? 0.75 : 1,
-              }}
-            >
-              <Text style={{ color: FG, fontSize: 16, fontWeight: '600' }}>🔁 Przeładuj model</Text>
-              <Text style={{ color: FG_MUTED, fontSize: 12 }}>kamerka pauzuje na chwilę</Text>
-            </Pressable>
-          </View>
         </View>
         </View>
       </SafeAreaView>
