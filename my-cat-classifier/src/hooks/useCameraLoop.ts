@@ -10,9 +10,8 @@ interface UseCameraLoopParams {
   classifyBase64: (
     jpegBase64: string,
     options?: { silent?: boolean }
-  ) => Promise<Array<{ label: string; p: number }> | null>;
-  resizeTo224Base64: (uri: string, context: 'gallery' | 'camera') => Promise<{ base64: string }>;
-  resetSilentStatus: () => void;
+  ) => Promise<unknown>;
+  resizeToModelBase64: (uri: string, context: 'gallery' | 'camera') => Promise<{ base64: string }>;  resetSilentStatus: () => void;
   clearPreview?: () => void;
   warn: (...args: unknown[]) => void;
   err: (...args: unknown[]) => void;
@@ -35,7 +34,7 @@ export function useCameraLoop({
   ready,
   updateStatus,
   classifyBase64,
-  resizeTo224Base64,
+  resizeToModelBase64,
   resetSilentStatus,
   clearPreview,
   warn,
@@ -119,7 +118,7 @@ export function useCameraLoop({
       updateStatus('❌ Błąd kamery');
       Alert.alert('Camera error', String((e as any)?.message || e));
     }
-  }, [cameraActive, clearPreview, err, permission, ready, requestPermission, updateStatus]);
+  }, [cameraActive, cameraReady, capturePaused, classifyBase64, ready, resizeToModelBase64, warn]);
 
   const handleCameraReady = useCallback(() => {
     setCameraReady(true);
