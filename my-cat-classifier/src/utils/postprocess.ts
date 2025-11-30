@@ -57,20 +57,22 @@ function decodeRowsLayout(
   const rows = Math.floor(data.length / stride);
   const detections: YoloDetection[] = [];
 
+  const sigmoid = (x: number) => (x >= 0 ? 1 / (1 + Math.exp(-x)) : Math.exp(x) / (1 + Math.exp(x)));
+
   for (let row = 0; row < rows; row += 1) {
     const offset = row * stride;
     const x = data[offset];
     const y = data[offset + 1];
     const w = data[offset + 2];
     const h = data[offset + 3];
-    const obj = data[offset + 4];
+    const obj = sigmoid(data[offset + 4]);
 
     if (obj <= 0) continue;
 
     let bestClass = 0;
     let bestProb = 0;
     for (let cls = 0; cls < numClasses; cls += 1) {
-      const p = data[offset + 5 + cls];
+      const p = sigmoid(data[offset + 5 + cls]);
       if (p > bestProb) {
         bestProb = p;
         bestClass = cls;
@@ -104,6 +106,7 @@ function decodeChannelsFirstLayout(
 ) {
   const stride = numClasses + 5;
   const detections: YoloDetection[] = [];
+  const sigmoid = (x: number) => (x >= 0 ? 1 / (1 + Math.exp(-x)) : Math.exp(x) / (1 + Math.exp(x)));
 
   const totalAnchors = Math.floor(data.length / stride);
   for (let anchor = 0; anchor < totalAnchors; anchor += 1) {
@@ -111,14 +114,14 @@ function decodeChannelsFirstLayout(
     const y = data[anchor + totalAnchors];
     const w = data[anchor + totalAnchors * 2];
     const h = data[anchor + totalAnchors * 3];
-    const obj = data[anchor + totalAnchors * 4];
+    const obj = sigmoid(data[anchor + totalAnchors * 4]);
 
     if (obj <= 0) continue;
 
     let bestClass = 0;
     let bestProb = 0;
     for (let cls = 0; cls < numClasses; cls += 1) {
-      const p = data[anchor + totalAnchors * (5 + cls)];
+      const p = sigmoid(data[anchor + totalAnchors * (5 + cls)]);
       if (p > bestProb) {
         bestProb = p;
         bestClass = cls;

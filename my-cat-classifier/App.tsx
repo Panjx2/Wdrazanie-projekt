@@ -31,10 +31,12 @@ export default function App() {
     probTopK,
     reloadModel,
     classifyBase64,
-    resizeTo224Base64,
+    resizeToModelBase64,
     resetSilentStatus,
+    log,
     warn,
-    err,      resizeToModelBase64,detections
+    err,
+    detections,
 
   } = useCatClassifier();
 
@@ -42,7 +44,9 @@ export default function App() {
   const pinchStartZoomRef = useRef(0);
   const sliderStartZoomRef = useRef(0);
   const sliderWidthRef = useRef(0);
-    const [cameraLayout, setCameraLayout] = useState({ width: 0, height: 0 });
+  const [cameraLayout, setCameraLayout] = useState({ width: 0, height: 0 });
+  const overlayReasonRef = useRef('');
+  const overlayReasonTimeRef = useRef(0);
 
   const {
     cameraActive,
@@ -58,13 +62,11 @@ export default function App() {
     ready,
     updateStatus,
     classifyBase64,
-    resizeTo224Base64,
+    resizeToModelBase64,
     resetSilentStatus,
     clearPreview: () => setPreviewUri(null),
     warn,
-
     err,
-      resizeToModelBase64,
   });
 
   useEffect(() => {
@@ -149,6 +151,36 @@ export default function App() {
     resumeCapture();
   }, [cameraActive, pauseCapture, reloadModel, resumeCapture, startCamera]);
 
+  useEffect(() => {
+    const reason = (() => {
+      if (MODEL_KIND !== 'yolo') return 'overlay disabled: MODEL_KIND is not yolo';
+      if (busy) return 'overlay hidden: busy state';
+      if (!cameraLayout.width || !cameraLayout.height)
+        return 'overlay hidden: waiting for camera layout dimensions';
+      if (detections.length === 0) return 'overlay hidden: no detections yet';
+      const first = detections[0];
+      const clamp = (v: number) => Math.max(0, Math.min(1, v));
+      const left = clamp(first.box.x1) * cameraLayout.width;
+      const top = clamp(first.box.y1) * cameraLayout.height;
+      const width = clamp(first.box.x2 - first.box.x1) * cameraLayout.width;
+      const height = clamp(first.box.y2 - first.box.y1) * cameraLayout.height;
+      return `overlay visible: ${detections.length} boxes (first ${first.label} ${(first.score * 100).toFixed(
+        1
+      )}% @ px [${left.toFixed(1)},${top.toFixed(1)}]-[${(left + width).toFixed(1)},${(top +
+        height
+      ).toFixed(1)}])`;
+    })();
+
+    const now = Date.now();
+    const hasChanged = overlayReasonRef.current !== reason;
+    const isStale = now - overlayReasonTimeRef.current > 2000;
+    if (hasChanged || isStale) {
+      overlayReasonRef.current = reason;
+      overlayReasonTimeRef.current = now;
+      log('[UI]', reason);
+    }
+  }, [busy, cameraLayout.height, cameraLayout.width, detections, log]);
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaView style={{ flex: 1, backgroundColor: '#000' }}>
@@ -160,7 +192,8 @@ export default function App() {
               height: event.nativeEvent.layout.height,
             });
           }}
-        >          {permission?.granted ? (
+        >
+          {permission?.granted ? (
             cameraComponent
           ) : (
             <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16 }}>
@@ -391,6 +424,7 @@ export default function App() {
               />
             </View>
           )}
+
         </View>
         </View>
       </SafeAreaView>
