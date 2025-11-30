@@ -34,8 +34,9 @@ export default function App() {
     resizeTo224Base64,
     resetSilentStatus,
     warn,
-    err,      resizeToModelBase64,detections
-
+    err,
+    resizeToModelBase64,
+    detections,
   } = useCatClassifier();
 
   const [zoom, setZoom] = useState(0);
@@ -64,7 +65,7 @@ export default function App() {
     warn,
 
     err,
-      resizeToModelBase64,
+    resizeToModelBase64,
   });
 
   useEffect(() => {
@@ -160,7 +161,8 @@ export default function App() {
               height: event.nativeEvent.layout.height,
             });
           }}
-        >          {permission?.granted ? (
+        >
+          {permission?.granted ? (
             cameraComponent
           ) : (
             <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16 }}>
