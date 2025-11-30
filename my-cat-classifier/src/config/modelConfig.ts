@@ -31,8 +31,9 @@ type YoloModelConfig = BaseModelConfig & {
 
 type ModelConfig = ClassificationModelConfig | YoloModelConfig;
 
-// Change to 'yolo' after adding your YOLO ONNX asset below.
-export const MODEL_KIND: ModelKind = 'classification';
+// The app is intended to run in YOLO detection mode by default.
+// Flip to 'classification' only if you explicitly need logits/top-k outputs.
+export const MODEL_KIND: ModelKind = 'yolo';
 
 const classificationModel: ClassificationModelConfig = {
   kind: 'classification',
