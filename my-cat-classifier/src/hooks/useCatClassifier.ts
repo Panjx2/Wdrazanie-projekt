@@ -7,7 +7,7 @@ import { Asset } from 'expo-asset';
 import * as FileSystem from 'expo-file-system';
 
 import { chwFromBase64JPEG } from '../utils/preprocess';
-import { decodeYoloOutput, type YoloDetection } from '../utils/yoloPostprocess';
+import { decodeYoloOutput, type YoloDetection } from '../utils/postprocess';
 import { CAMERA_STATUS_INTERVAL_MS, USE_PNG_LOSSLESS } from '../config/constants';
 import { MODEL, MODEL_KIND } from '../config/modelConfig';
 

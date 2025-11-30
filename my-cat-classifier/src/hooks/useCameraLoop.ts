@@ -11,7 +11,8 @@ interface UseCameraLoopParams {
     jpegBase64: string,
     options?: { silent?: boolean }
   ) => Promise<unknown>;
-  resizeToModelBase64: (uri: string, context: 'gallery' | 'camera') => Promise<{ base64: string }>;  resetSilentStatus: () => void;
+  resizeToModelBase64: (uri: string, context: 'gallery' | 'camera') => Promise<{ base64: string }>;
+  resetSilentStatus: () => void;
   clearPreview?: () => void;
   warn: (...args: unknown[]) => void;
   err: (...args: unknown[]) => void;
@@ -76,27 +77,27 @@ export function useCameraLoop({
     setCapturePaused(false);
   }, []);
 
-  const captureFrame = useCallback(async () => {
-    if (!ready || !cameraActive || !cameraReady || capturePaused) return;
-    const camera = cameraRef.current;
-    if (!camera || takingPictureRef.current) return;
-    takingPictureRef.current = true;
-    try {
-      const photo = await camera.takePictureAsync({
-        base64: false,
-        quality: CAMERA_QUALITY,
-        skipProcessing: true,
-      });
-      if (photo?.uri) {
-        const resized = await resizeTo224Base64(photo.uri, 'camera');
-        await classifyBase64(resized.base64, { silent: true });
+    const captureFrame = useCallback(async () => {
+      if (!ready || !cameraActive || !cameraReady || capturePaused) return;
+      const camera = cameraRef.current;
+      if (!camera || takingPictureRef.current) return;
+      takingPictureRef.current = true;
+      try {
+        const photo = await camera.takePictureAsync({
+          base64: false,
+          quality: CAMERA_QUALITY,
+          skipProcessing: true,
+        });
+        if (photo?.uri) {
+          const resized = await resizeToModelBase64(photo.uri, 'camera');
+          await classifyBase64(resized.base64, { silent: true });
+        }
+      } catch (e) {
+        warn('Kamera: błąd przechwytywania klatki', (e as any)?.message || e);
+      } finally {
+        takingPictureRef.current = false;
       }
-    } catch (e) {
-      warn('Kamera: błąd przechwytywania klatki', (e as any)?.message || e);
-    } finally {
-      takingPictureRef.current = false;
-    }
-  }, [cameraActive, cameraReady, capturePaused, classifyBase64, ready, resizeToModelBase64, warn]);
+    }, [cameraActive, cameraReady, capturePaused, classifyBase64, ready, resizeToModelBase64, warn]);
   const startCamera = useCallback(async () => {
     if (cameraActive) return;
 
