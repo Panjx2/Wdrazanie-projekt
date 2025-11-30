@@ -31,10 +31,11 @@ export default function App() {
     probTopK,
     reloadModel,
     classifyBase64,
-    resizeTo224Base64,
+    resizeToModelBase64,
     resetSilentStatus,
     warn,
-    err,      resizeToModelBase64,detections
+    err,
+    detections
 
   } = useCatClassifier();
 
@@ -42,7 +43,7 @@ export default function App() {
   const pinchStartZoomRef = useRef(0);
   const sliderStartZoomRef = useRef(0);
   const sliderWidthRef = useRef(0);
-    const [cameraLayout, setCameraLayout] = useState({ width: 0, height: 0 });
+  const [cameraLayout, setCameraLayout] = useState({ width: 0, height: 0 });
 
   const {
     cameraActive,
@@ -58,13 +59,11 @@ export default function App() {
     ready,
     updateStatus,
     classifyBase64,
-    resizeTo224Base64,
+    resizeToModelBase64,
     resetSilentStatus,
     clearPreview: () => setPreviewUri(null),
     warn,
-
     err,
-      resizeToModelBase64,
   });
 
   useEffect(() => {
