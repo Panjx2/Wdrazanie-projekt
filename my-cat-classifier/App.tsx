@@ -17,6 +17,7 @@ import {
 import { useCatClassifier } from './src/hooks/useCatClassifier';
 import { useCameraLoop } from './src/hooks/useCameraLoop';
 import { COLORS } from './src/config/constants';
+import { MODEL_KIND } from './src/config/modelConfig';
 
 const { FG, FG_MUTED } = COLORS;
 
@@ -33,13 +34,15 @@ export default function App() {
     resizeTo224Base64,
     resetSilentStatus,
     warn,
-    err,
+    err,      resizeToModelBase64,detections
+
   } = useCatClassifier();
 
   const [zoom, setZoom] = useState(0);
   const pinchStartZoomRef = useRef(0);
   const sliderStartZoomRef = useRef(0);
   const sliderWidthRef = useRef(0);
+    const [cameraLayout, setCameraLayout] = useState({ width: 0, height: 0 });
 
   const {
     cameraActive,
@@ -59,7 +62,9 @@ export default function App() {
     resetSilentStatus,
     clearPreview: () => setPreviewUri(null),
     warn,
+
     err,
+      resizeToModelBase64,
   });
 
   useEffect(() => {
@@ -147,8 +152,15 @@ export default function App() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaView style={{ flex: 1, backgroundColor: '#000' }}>
-        <View style={{ flex: 1, backgroundColor: '#000' }}>
-          {permission?.granted ? (
+        <View
+          style={{ flex: 1, backgroundColor: '#000' }}
+          onLayout={(event) => {
+            setCameraLayout({
+              width: event.nativeEvent.layout.width,
+              height: event.nativeEvent.layout.height,
+            });
+          }}
+        >          {permission?.granted ? (
             cameraComponent
           ) : (
             <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16 }}>
@@ -175,6 +187,51 @@ export default function App() {
             <Text style={{ color: FG_MUTED, marginTop: 8 }}>Trwa uruchamianie podglądu…</Text>
           </View>
         )}
+          {MODEL_KIND === 'yolo' && detections.length > 0 && cameraLayout.width > 0 && cameraLayout.height > 0 && (
+            <View
+              pointerEvents="none"
+              style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+            >
+              {detections.map((det, idx) => {
+                const clamp = (v: number) => Math.max(0, Math.min(1, v));
+                const left = clamp(det.box.x1) * cameraLayout.width;
+                const top = clamp(det.box.y1) * cameraLayout.height;
+                const width = clamp(det.box.x2 - det.box.x1) * cameraLayout.width;
+                const height = clamp(det.box.y2 - det.box.y1) * cameraLayout.height;
+
+                return (
+                  <View
+                    key={`${det.label}_${idx}`}
+                    style={{
+                      position: 'absolute',
+                      left,
+                      top,
+                      width,
+                      height,
+                      borderWidth: 2,
+                      borderColor: '#4ade80',
+                      backgroundColor: 'rgba(74, 222, 128, 0.15)',
+                    }}
+                  >
+                    <View
+                      style={{
+                        position: 'absolute',
+                        left: 0,
+                        top: 0,
+                        paddingHorizontal: 6,
+                        paddingVertical: 4,
+                        backgroundColor: 'rgba(0,0,0,0.65)',
+                      }}
+                    >
+                      <Text style={{ color: '#fff', fontSize: 12, fontWeight: '700' }}>
+                        {det.label} {(det.score * 100).toFixed(1)}%
+                      </Text>
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+          )}
 
         {/* Top overlay with status */}
         <View
@@ -293,7 +350,28 @@ export default function App() {
             </PanGestureHandler>
           </View>
 
-          {probTopK.length > 0 && !busy && (
+          {MODEL_KIND === 'yolo' && detections.length > 0 && !busy && (
+            <View style={{ backgroundColor: 'rgba(0,0,0,0.55)', borderRadius: 12, padding: 12 }}>
+              <FlatList
+                data={detections}
+                keyExtractor={(item, idx) => `${item.label}_${idx}`}
+                renderItem={({ item }) => (
+                  <View
+                    style={{
+                      flexDirection: 'row',
+                      justifyContent: 'space-between',
+                      paddingVertical: 4,
+                    }}
+                  >
+                    <Text style={{ color: FG, fontSize: 13, fontWeight: '600' }}>{item.label}</Text>
+                    <Text style={{ color: FG_MUTED, fontSize: 12 }}>{(item.score * 100).toFixed(1)}%</Text>
+                  </View>
+                )}
+              />
+            </View>
+          )}
+
+          {MODEL_KIND !== 'yolo' && probTopK.length > 0 && !busy && (
             <View style={{ backgroundColor: 'rgba(0,0,0,0.55)', borderRadius: 12, padding: 12 }}>
               <FlatList
                 data={probTopK}
