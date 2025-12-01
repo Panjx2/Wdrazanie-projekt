@@ -6,23 +6,52 @@ import * as ImageManipulator from 'expo-image-manipulator';
 import { Asset } from 'expo-asset';
 import * as FileSystem from 'expo-file-system';
 
-import { chwFromBase64JPEG224 } from '../utils/preprocess';
+import { yoloLetterboxChwFromBase64, type LetterboxMeta } from '../utils/preprocess';
 import {
   CAMERA_STATUS_INTERVAL_MS,
-  IMAGENET_MEAN,
-  IMAGENET_STD,
   USE_BGR,
   USE_PNG_LOSSLESS,
+  YOLO_CONF_THRESHOLD,
+  YOLO_INPUT_SIZE,
+  YOLO_IOU_THRESHOLD,
+  YOLO_MAX_DETECTIONS,
 } from '../config/constants';
 
 const labels = require('../../assets/labels.json');
 
-const PROB_ALIASES = ['prob', 'probs', 'probabilities', 'softmax'];
-const LOGIT_ALIASES = ['logits', 'output'];
+type Detection = {
+  label: string;
+  score: number;
+  box: { x1: number; y1: number; x2: number; y2: number }; // współrzędne znormalizowane do 0..1 względem zdjęcia wejściowego
+};
 
-const MODEL_BASENAME = 'mobilenetv3_finetuned';
-const ONNX_ASSET = require('../../assets/models/mobilenetv3_finetuned.onnx');
-const ONNX_DATA_ASSET = require('../../assets/models/mobilenetv3_finetuned.onnx.data');
+type ResizeResult = ImageManipulator.ImageResult & { base64: string };
+
+type ClassifyOptions = {
+  silent?: boolean;
+};
+
+type CatClassifierHook = {
+  status: string;
+  updateStatus: (value: string) => void;
+  busy: boolean;
+  ready: boolean;
+  previewUri: string | null;
+  setPreviewUri: (uri: string | null) => void;
+  detections: Detection[];
+  pickImage: () => Promise<void>;
+  reloadModel: () => Promise<void>;
+  classifyBase64: (jpegBase64: string, options?: ClassifyOptions) => Promise<Detection[] | null>;
+  resizeToModelInput: (uri: string, context: 'gallery' | 'camera') => Promise<ResizeResult>;
+  resetSilentStatus: () => void;
+  log: (...args: unknown[]) => void;
+  warn: (...args: unknown[]) => void;
+  err: (...args: unknown[]) => void;
+};
+
+const MODEL_BASENAME = 'yolo11';
+const ONNX_ASSET = require('../../assets/models/yolo11.onnx');
+const ONNX_DATA_ASSET = require('../../assets/models/yolo11.onnx.data');
 
 async function prepareOnnxWithExternalData() {
   const [onnxAsset, dataAsset] = await Asset.loadAsync([
@@ -41,49 +70,55 @@ async function prepareOnnxWithExternalData() {
   const dataDst = `${dir}${MODEL_BASENAME}.onnx.data`;
 
   await FileSystem.copyAsync({ from: onnxAsset.localUri!, to: modelDst });
-  await FileSystem.copyAsync({ from: dataAsset.localUri!, to: dataDst });
+  if (dataAsset?.localUri) {
+    const dataInfo = await FileSystem.getInfoAsync(dataAsset.localUri);
+    if (dataInfo.exists && dataInfo.size && dataInfo.size > 0) {
+      await FileSystem.copyAsync({ from: dataAsset.localUri, to: dataDst });
+    } else {
+      console.warn('[CatApp] Pomijam plik .onnx.data (brak lub pusty)');
+    }
+  }
 
   return modelDst;
 }
 
-const topK = (probs: number[], k = 3) =>
-  probs
-    .map((p, i) => ({ i, p }))
-    .sort((a, b) => b.p - a.p)
-    .slice(0, Math.min(k, probs.length));
+function boxIou(a: Detection['box'], b: Detection['box']) {
+  const x1 = Math.max(a.x1, b.x1);
+  const y1 = Math.max(a.y1, b.y1);
+  const x2 = Math.min(a.x2, b.x2);
+  const y2 = Math.min(a.y2, b.y2);
+  const inter = Math.max(0, x2 - x1) * Math.max(0, y2 - y1);
+  const areaA = Math.max(0, a.x2 - a.x1) * Math.max(0, a.y2 - a.y1);
+  const areaB = Math.max(0, b.x2 - b.x1) * Math.max(0, b.y2 - b.y1);
+  const union = areaA + areaB - inter;
+  return union === 0 ? 0 : inter / union;
+}
 
-type ResizeResult = ImageManipulator.ImageResult & { base64: string };
+function applyNms(list: Detection[], iou = YOLO_IOU_THRESHOLD, max = YOLO_MAX_DETECTIONS) {
+  const sorted = [...list].sort((a, b) => b.score - a.score);
+  const picked: Detection[] = [];
 
-type ClassifyOptions = {
-  silent?: boolean;
-};
+  while (sorted.length && picked.length < max) {
+    const current = sorted.shift()!;
+    picked.push(current);
+    const remaining: Detection[] = [];
+    for (const det of sorted) {
+      if (boxIou(current.box, det.box) < iou) {
+        remaining.push(det);
+      }
+    }
+    sorted.splice(0, sorted.length, ...remaining);
+  }
 
-type CatClassifierHook = {
-  status: string;
-  updateStatus: (value: string) => void;
-  busy: boolean;
-  ready: boolean;
-  previewUri: string | null;
-  setPreviewUri: (uri: string | null) => void;
-  probTopK: Array<{ label: string; p: number }>;
-  pickImage: () => Promise<void>;
-  reloadModel: () => Promise<void>;
-  classifyBase64: (jpegBase64: string, options?: ClassifyOptions) => Promise<
-    Array<{ label: string; p: number }> | null
-  >;
-  resizeTo224Base64: (uri: string, context: 'gallery' | 'camera') => Promise<ResizeResult>;
-  resetSilentStatus: () => void;
-  log: (...args: unknown[]) => void;
-  warn: (...args: unknown[]) => void;
-  err: (...args: unknown[]) => void;
-};
+  return picked;
+}
 
 export function useCatClassifier(): CatClassifierHook {
   const [status, setStatus] = useState('⏳ Inicjalizacja…');
   const [busy, setBusy] = useState(false);
   const [ready, setReady] = useState(false);
   const [previewUri, setPreviewUri] = useState<string | null>(null);
-  const [probTopK, setProbTopK] = useState<Array<{ label: string; p: number }>>([]);
+  const [detections, setDetections] = useState<Detection[]>([]);
 
   const sessionRef = useRef<ort.InferenceSession | null>(null);
   const lastSilentStatusRef = useRef<{ label: string; timestamp: number }>({ label: '', timestamp: 0 });
@@ -91,6 +126,73 @@ export function useCatClassifier(): CatClassifierHook {
   const log = useCallback((...args: unknown[]) => console.log('[CatApp]', ...args), []);
   const warn = useCallback((...args: unknown[]) => console.warn('[CatApp]', ...args), []);
   const err = useCallback((...args: unknown[]) => console.error('[CatApp]', ...args), []);
+
+  const decodeYoloOutput = useCallback(
+    (data: Float32Array | number[], dims: ReadonlyArray<number> | undefined, meta: LetterboxMeta) => {
+      const outDims = Array.from(dims ?? []);
+      const boxes: Detection[] = [];
+
+      if (outDims.length === 3 && outDims[2] >= 6) {
+        // [batch, num_boxes, 6+]
+        const [batch, numBoxes, stride] = outDims;
+        if (batch !== 1) warn('Niespodziewany batch > 1 w wyjściu YOLO');
+        for (let i = 0; i < numBoxes; i += 1) {
+          const base = i * stride;
+          const score = Number(data[base + 4]);
+          if (score < YOLO_CONF_THRESHOLD) continue;
+          const cls = Math.round(Number(data[base + 5] ?? 0));
+
+          const x1 = Number(data[base]);
+          const y1 = Number(data[base + 1]);
+          const x2 = Number(data[base + 2]);
+          const y2 = Number(data[base + 3]);
+
+          const invRatio = 1 / meta.ratio;
+          const nx1 = Math.max(0, Math.min(1, (x1 - meta.pad.x) * invRatio / meta.origSize.width));
+          const ny1 = Math.max(0, Math.min(1, (y1 - meta.pad.y) * invRatio / meta.origSize.height));
+          const nx2 = Math.max(0, Math.min(1, (x2 - meta.pad.x) * invRatio / meta.origSize.width));
+          const ny2 = Math.max(0, Math.min(1, (y2 - meta.pad.y) * invRatio / meta.origSize.height));
+
+          boxes.push({
+            label: labels[cls] ?? `cls_${cls}`,
+            score,
+            box: { x1: nx1, y1: ny1, x2: nx2, y2: ny2 },
+          });
+        }
+      } else if (outDims.length === 2 && outDims[1] >= 6) {
+        // [num_boxes, 6+] fallback
+        const [numBoxes, stride] = outDims;
+        for (let i = 0; i < numBoxes; i += 1) {
+          const base = i * stride;
+          const score = Number(data[base + 4]);
+          if (score < YOLO_CONF_THRESHOLD) continue;
+          const cls = Math.round(Number(data[base + 5] ?? 0));
+
+          const x1 = Number(data[base]);
+          const y1 = Number(data[base + 1]);
+          const x2 = Number(data[base + 2]);
+          const y2 = Number(data[base + 3]);
+
+          const invRatio = 1 / meta.ratio;
+          const nx1 = Math.max(0, Math.min(1, (x1 - meta.pad.x) * invRatio / meta.origSize.width));
+          const ny1 = Math.max(0, Math.min(1, (y1 - meta.pad.y) * invRatio / meta.origSize.height));
+          const nx2 = Math.max(0, Math.min(1, (x2 - meta.pad.x) * invRatio / meta.origSize.width));
+          const ny2 = Math.max(0, Math.min(1, (y2 - meta.pad.y) * invRatio / meta.origSize.height));
+
+          boxes.push({
+            label: labels[cls] ?? `cls_${cls}`,
+            score,
+            box: { x1: nx1, y1: ny1, x2: nx2, y2: ny2 },
+          });
+        }
+      } else {
+        throw new Error(`Nieznany kształt wyjścia YOLO: ${outDims.join('x') || 'brak dims'}`);
+      }
+
+      return applyNms(boxes);
+    },
+    [warn]
+  );
 
   const classifyBase64 = useCallback(
     async (jpegBase64: string, { silent = false }: ClassifyOptions = {}) => {
@@ -103,83 +205,47 @@ export function useCatClassifier(): CatClassifierHook {
 
       if (!silent) {
         setBusy(true);
-        setStatus('🤖 Klasyfikuję…');
+        setStatus('🤖 Detekcja…');
       }
 
       try {
-        const chw = chwFromBase64JPEG224(jpegBase64, IMAGENET_MEAN, IMAGENET_STD, USE_BGR);
+        const { chw, meta } = yoloLetterboxChwFromBase64(jpegBase64, YOLO_INPUT_SIZE, USE_BGR);
 
-        {
-          const size = 224 * 224;
-          const mR = chw.slice(0, size).reduce((a, b) => a + b, 0) / size;
-          const mG = chw.slice(size, 2 * size).reduce((a, b) => a + b, 0) / size;
-          const mB = chw.slice(2 * size).reduce((a, b) => a + b, 0) / size;
-          log('CHW means (≈0):', mR.toFixed(3), mG.toFixed(3), mB.toFixed(3));
-        }
-
-        const inputName = session.inputNames?.[0] ?? 'input';
-        const tensor = new ort.Tensor('float32', chw, [1, 3, 224, 224]);
+        const inputName = session.inputNames?.[0] ?? 'images';
+        const tensor = new ort.Tensor('float32', chw, [1, 3, YOLO_INPUT_SIZE, YOLO_INPUT_SIZE]);
 
         const outputMap = await session.run({ [inputName]: tensor });
         const keys = Object.keys(outputMap);
-
-        const outName =
-          PROB_ALIASES.find(key => keys.includes(key)) ??
-          LOGIT_ALIASES.find(key => keys.includes(key)) ??
-          keys[0];
-
+        const outName = session.outputNames?.[0] ?? keys[0];
         const outT = outputMap[outName];
         if (!outT?.data) throw new Error(`Puste wyjście modelu "${outName}"`);
-        const data = outT.data as Float32Array;
 
-        let probs: number[];
-        if (PROB_ALIASES.includes(outName)) {
-          probs = Array.from(data);
-        } else {
-          let max = -Infinity;
-          for (let i = 0; i < data.length; i += 1) if (data[i] > max) max = data[i];
-          const exps = new Float32Array(data.length);
-          let sum = 0;
-          for (let i = 0; i < data.length; i += 1) {
-            const value = Math.exp(data[i] - max);
-            exps[i] = value;
-            sum += value;
-          }
-          probs = Array.from(exps, value => value / (sum || 1));
-        }
+        const parsed = decodeYoloOutput(outT.data as Float32Array, outT.dims, meta);
+        const limited = parsed.slice(0, YOLO_MAX_DETECTIONS);
 
-        const rawTop = topK(probs, 3).map(({ i, p }) => ({
-          label: labels[i] ?? `cls_${i}`,
-          p,
-        }));
-
-        const top = rawTop.map((item, idx) =>
-          idx === 0 && item.p < 0.3 ? { ...item, label: 'Unknown' } : item
-        );
-
-        setProbTopK(top);
+        setDetections(limited);
         if (!silent) {
           setStatus('✅ Gotowe');
-        } else if (top.length > 0) {
-          const best = top[0];
+        } else if (limited.length > 0) {
+          const best = limited[0];
           const now = Date.now();
           const shouldUpdate =
             best.label !== lastSilentStatusRef.current.label ||
             now - lastSilentStatusRef.current.timestamp > CAMERA_STATUS_INTERVAL_MS;
           if (shouldUpdate) {
-            setStatus(`📸 Kamera: ${best.label} ${(best.p * 100).toFixed(1)}%`);
+            setStatus(`📸 Kamera: ${best.label} ${(best.score * 100).toFixed(1)}%`);
             lastSilentStatusRef.current = { label: best.label, timestamp: now };
           }
         }
-        log('TOP-3:', top.map(t => `${t.label}: ${(t.p * 100).toFixed(1)}%`).join(', '));
-        return top;
+        log('Detections:', limited.map(t => `${t.label}: ${(t.score * 100).toFixed(1)}%`).join(', '));
+        return limited;
       } catch (e: any) {
-        err('Błąd klasyfikacji:', e?.message || e);
+        err('Błąd detekcji:', e?.message || e);
         if (!silent) {
-          setStatus('❌ Błąd klasyfikacji');
+          setStatus('❌ Błąd detekcji');
           Alert.alert('Inference error', String(e?.message || e));
         } else {
-          setStatus('⚠️ Kamera: błąd klasyfikacji');
+          setStatus('⚠️ Kamera: błąd detekcji');
         }
       } finally {
         if (!silent) {
@@ -188,16 +254,16 @@ export function useCatClassifier(): CatClassifierHook {
       }
       return null;
     },
-    [err, log, warn]
+    [decodeYoloOutput, err, log, warn]
   );
 
-  const resizeTo224Base64 = useCallback<CatClassifierHook['resizeTo224Base64']>(
+  const resizeToModelInput = useCallback<CatClassifierHook['resizeToModelInput']>(
     async (uri, context) => {
       const outFormat = USE_PNG_LOSSLESS
         ? ImageManipulator.SaveFormat.PNG
         : ImageManipulator.SaveFormat.JPEG;
       try {
-        const resized = await ImageManipulator.manipulateAsync(uri, [{ resize: { width: 224, height: 224 } }], {
+        const resized = await ImageManipulator.manipulateAsync(uri, [{ resize: { width: YOLO_INPUT_SIZE } }], {
           compress: USE_PNG_LOSSLESS ? 1 : 0.95,
           format: outFormat,
           base64: true,
@@ -239,10 +305,10 @@ export function useCatClassifier(): CatClassifierHook {
       const uri = res.assets[0].uri;
       log('Wybrano:', uri);
 
-      setStatus('🛠️ Resize 224×224…');
+      setStatus(`🛠️ Resize ${YOLO_INPUT_SIZE}×${YOLO_INPUT_SIZE}…`);
       console.time('Resize+Base64');
 
-      const resized = await resizeTo224Base64(uri, 'gallery');
+      const resized = await resizeToModelInput(uri, 'gallery');
       console.timeEnd('Resize+Base64');
 
       setPreviewUri(resized.uri);
@@ -252,7 +318,7 @@ export function useCatClassifier(): CatClassifierHook {
       setStatus('❌ Błąd obrazu');
       Alert.alert('Image error', String(e?.message || e));
     }
-  }, [classifyBase64, err, log, resizeTo224Base64]);
+  }, [classifyBase64, err, log, resizeToModelInput]);
 
   const resetSilentStatus = useCallback(() => {
     lastSilentStatusRef.current = { label: '', timestamp: 0 };
@@ -307,11 +373,11 @@ export function useCatClassifier(): CatClassifierHook {
       ready,
       previewUri,
       setPreviewUri,
-      probTopK,
+      detections,
       pickImage,
       reloadModel,
       classifyBase64,
-      resizeTo224Base64,
+      resizeToModelInput,
       resetSilentStatus,
       log,
       warn,
@@ -323,11 +389,11 @@ export function useCatClassifier(): CatClassifierHook {
       busy,
       ready,
       previewUri,
-      probTopK,
+      detections,
       pickImage,
       reloadModel,
       classifyBase64,
-      resizeTo224Base64,
+      resizeToModelInput,
       resetSilentStatus,
       log,
       warn,

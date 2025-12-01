@@ -1,4 +1,4 @@
-// App.jsx — dokładność priorytet, ONNX z external data, Resize 224×224 + Normalize
+// App.tsx — YOLO11 ONNX + podgląd kamery i overlay statusu
 import 'react-native-reanimated';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { SafeAreaView, View, Text, Pressable, ActivityIndicator, FlatList } from 'react-native';
@@ -27,10 +27,10 @@ export default function App() {
     busy,
     ready,
     setPreviewUri,
-    probTopK,
+    detections,
     reloadModel,
     classifyBase64,
-    resizeTo224Base64,
+    resizeToModelInput,
     resetSilentStatus,
     warn,
     err,
@@ -55,7 +55,7 @@ export default function App() {
     ready,
     updateStatus,
     classifyBase64,
-    resizeTo224Base64,
+    resizeToModelInput,
     resetSilentStatus,
     clearPreview: () => setPreviewUri(null),
     warn,
@@ -192,7 +192,7 @@ export default function App() {
           }}
         >
           <View style={{ backgroundColor: 'rgba(0,0,0,0.45)', padding: 10, borderRadius: 12 }}>
-            <Text style={{ color: FG, fontSize: 13, fontWeight: '700' }}>Cat Classifier</Text>
+            <Text style={{ color: FG, fontSize: 13, fontWeight: '700' }}>YOLO11 Detector</Text>
             <Text style={{ color: ready ? '#b5ffb5' : FG_MUTED, marginTop: 2, fontSize: 12 }}>
               {status}
             </Text>
@@ -207,7 +207,7 @@ export default function App() {
             {busy && (
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                 <ActivityIndicator size="small" />
-                <Text style={{ color: FG, fontSize: 12 }}>Klasyfikuję…</Text>
+                <Text style={{ color: FG, fontSize: 12 }}>Detekcja…</Text>
               </View>
             )}
             <Pressable
@@ -293,23 +293,32 @@ export default function App() {
             </PanGestureHandler>
           </View>
 
-          {probTopK.length > 0 && !busy && (
+          {detections.length > 0 && !busy && (
             <View style={{ backgroundColor: 'rgba(0,0,0,0.55)', borderRadius: 12, padding: 12 }}>
               <FlatList
-                data={probTopK}
+                data={detections}
                 keyExtractor={(item, idx) => `${item.label}_${idx}`}
-                renderItem={({ item }) => (
-                  <View
-                    style={{
-                      flexDirection: 'row',
-                      justifyContent: 'space-between',
-                      paddingVertical: 4,
-                    }}
-                  >
-                    <Text style={{ color: FG, fontSize: 13, fontWeight: '600' }}>{item.label}</Text>
-                    <Text style={{ color: FG_MUTED, fontSize: 12 }}>{(item.p * 100).toFixed(1)}%</Text>
-                  </View>
-                )}
+                renderItem={({ item }) => {
+                  const wPct = Math.max(0, item.box.x2 - item.box.x1) * 100;
+                  const hPct = Math.max(0, item.box.y2 - item.box.y1) * 100;
+                  return (
+                    <View
+                      style={{
+                        flexDirection: 'row',
+                        justifyContent: 'space-between',
+                        paddingVertical: 4,
+                      }}
+                    >
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ color: FG, fontSize: 13, fontWeight: '600' }}>{item.label}</Text>
+                        <Text style={{ color: FG_MUTED, fontSize: 11 }}>
+                          {wPct.toFixed(1)}% × {hPct.toFixed(1)}% kadru
+                        </Text>
+                      </View>
+                      <Text style={{ color: FG_MUTED, fontSize: 12 }}>{(item.score * 100).toFixed(1)}%</Text>
+                    </View>
+                  );
+                }}
               />
             </View>
           )}
