@@ -19,7 +19,6 @@ import {
 
 const labels = require('../../assets/labels.json');
 const EXPECTED_LABELS = labels.length;
-const MAX_LABEL_INDEX = EXPECTED_LABELS - 1;
 
 type Detection = {
   label: string;
@@ -149,14 +148,19 @@ function parseYoloShape(dims: ReadonlyArray<number> | undefined): YoloShape {
   throw new Error(`Nieznany kształt wyjścia YOLO: ${outDims.join('x') || 'brak dims'}`);
 }
 
-function ensureYoloClassesMatch(shape: YoloShape) {
-  if (shape.format === 'nms') return; // wyjście NMS nie zawiera pełnej liczby klas
+function resolveLabelsForShape(shape: YoloShape): string[] {
+  if (shape.format === 'nms') {
+    return labels;
+  }
+
   if (shape.classCount !== EXPECTED_LABELS) {
     throw new Error(
       `Model zwraca ${shape.classCount} klas (stride ${shape.stride}), a labels.json definiuje ${EXPECTED_LABELS}. ` +
-        'Wyeksportuj ponownie model YOLO z dokładnie tym samym porządkiem klas co assets/labels.json.'
+        'Wyeksportuj ponownie model YOLO z dokładnie tą samą kolejnością etykiet co w assets/labels.json.'
     );
   }
+
+  return labels;
 }
 
 export function useCatClassifier(): CatClassifierHook {
@@ -192,27 +196,31 @@ export function useCatClassifier(): CatClassifierHook {
     if (!outT?.dims) throw new Error(`Brak wymiarów wyjścia modelu "${outName}" podczas walidacji.`);
 
     const shape = parseYoloShape(outT.dims);
-    ensureYoloClassesMatch(shape);
+    const labelList = resolveLabelsForShape(shape);
+
     const shapeMsg =
       shape.format === 'nms'
         ? `wyjście NMS (xyxy, score, class), stride ${shape.stride}, boxów ${shape.numBoxes}`
         : `${shape.classCount} klas, stride ${shape.stride}, boxów ${shape.numBoxes}`;
+
     log(`Walidacja modelu: ${shapeMsg}`);
-  }, [log]);
+    log(`Aktywne etykiety: ${labelList.join(', ')}`);
+  }, [log, warn]);
 
   const decodeYoloOutput = useCallback(
     (data: Float32Array | number[], dims: ReadonlyArray<number> | undefined, meta: LetterboxMeta) => {
       const shape = parseYoloShape(dims);
-      ensureYoloClassesMatch(shape);
+      const labelList = resolveLabelsForShape(shape);
 
       const boxes: Detection[] = [];
 
       const resolveLabel = (cls: number) => {
-        const label = labels[cls];
+        const label = labelList[cls];
         if (label === undefined) {
-          warn(
-            `Pomijam detekcję z nieznaną klasą ${cls} (zakres etykiet: 0–${MAX_LABEL_INDEX}). ` +
-              'Model może być wytrenowany/wyeksportowany z inną liczbą klas niż labels.json.'
+          const maxIndex = Math.max(0, labelList.length - 1);
+          throw new Error(
+            `Niespójność klas YOLO: detekcja ma klasę ${cls}, ale dostępny zakres etykiet to 0–${maxIndex}. ` +
+              'Upewnij się, że model został wytrenowany i wyeksportowany z dokładnie tym samym zestawem etykiet co assets/labels.json.'
           );
         }
         return label;

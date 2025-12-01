@@ -20,6 +20,10 @@
 Aplikacja skaluje klatki kamery do 640 px szerokości, wykonuje letterbox w locie,
 ładuje model ONNX przez onnxruntime-react-native i wyświetla listę wykrytych obiektów.
 
+> Uwaga: aplikacja odrzuca modele YOLO, których liczba klas nie zgadza się z `assets/labels.json` —
+> walidacja podczas ładowania przerwie działanie z jasnym komunikatem, aby uniknąć cichych
+> rozbieżności etykiet.
+
 ## Utrzymanie kolejności klas i ponowny eksport modelu
 
 - Kolejność etykiet jest definiowana wyłącznie w `my-cat-classifier/assets/labels.json`. Podczas eksportu skrypt `scripts/export_to_onnx.py` buduje głowicę modelu na bazie tej listy, więc zachowuje dokładnie ten sam układ klas co w pliku z etykietami.【F:my-cat-classifier/scripts/export_to_onnx.py†L2-L106】【F:my-cat-classifier/assets/labels.json†L1-L15】
