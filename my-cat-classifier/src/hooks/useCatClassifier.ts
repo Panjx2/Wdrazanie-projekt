@@ -141,6 +141,11 @@ export function useCatClassifier(): CatClassifierHook {
           const score = Number(data[base + 4]);
           if (score < YOLO_CONF_THRESHOLD) continue;
           const cls = Math.round(Number(data[base + 5] ?? 0));
+          const label = labels[cls];
+          if (label === undefined) {
+            warn(`Pomijam detekcję z nieznaną klasą ${cls}`);
+            continue;
+          }
 
           const x1 = Number(data[base]);
           const y1 = Number(data[base + 1]);
@@ -154,7 +159,7 @@ export function useCatClassifier(): CatClassifierHook {
           const ny2 = Math.max(0, Math.min(1, (y2 - meta.pad.y) * invRatio / meta.origSize.height));
 
           boxes.push({
-            label: labels[cls] ?? `cls_${cls}`,
+            label,
             score,
             box: { x1: nx1, y1: ny1, x2: nx2, y2: ny2 },
           });
@@ -167,6 +172,11 @@ export function useCatClassifier(): CatClassifierHook {
           const score = Number(data[base + 4]);
           if (score < YOLO_CONF_THRESHOLD) continue;
           const cls = Math.round(Number(data[base + 5] ?? 0));
+          const label = labels[cls];
+          if (label === undefined) {
+            warn(`Pomijam detekcję z nieznaną klasą ${cls}`);
+            continue;
+          }
 
           const x1 = Number(data[base]);
           const y1 = Number(data[base + 1]);
@@ -180,7 +190,7 @@ export function useCatClassifier(): CatClassifierHook {
           const ny2 = Math.max(0, Math.min(1, (y2 - meta.pad.y) * invRatio / meta.origSize.height));
 
           boxes.push({
-            label: labels[cls] ?? `cls_${cls}`,
+            label,
             score,
             box: { x1: nx1, y1: ny1, x2: nx2, y2: ny2 },
           });
