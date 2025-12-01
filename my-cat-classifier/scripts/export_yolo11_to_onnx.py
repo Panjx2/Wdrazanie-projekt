@@ -16,7 +16,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 MODELS = ROOT / "assets" / "models"
-DEFAULT_PT = MODELS / "yolo11.pt"
+DEFAULT_PT = MODELS / "yolo11s.pt"
 
 
 def parse_args() -> argparse.Namespace:

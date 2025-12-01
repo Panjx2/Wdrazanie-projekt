@@ -70,7 +70,14 @@ async function prepareOnnxWithExternalData() {
   const dataDst = `${dir}${MODEL_BASENAME}.onnx.data`;
 
   await FileSystem.copyAsync({ from: onnxAsset.localUri!, to: modelDst });
-  await FileSystem.copyAsync({ from: dataAsset.localUri!, to: dataDst });
+  if (dataAsset?.localUri) {
+    const dataInfo = await FileSystem.getInfoAsync(dataAsset.localUri);
+    if (dataInfo.exists && dataInfo.size && dataInfo.size > 0) {
+      await FileSystem.copyAsync({ from: dataAsset.localUri, to: dataDst });
+    } else {
+      console.warn('[CatApp] Pomijam plik .onnx.data (brak lub pusty)');
+    }
+  }
 
   return modelDst;
 }

@@ -6,6 +6,8 @@
    python scripts/export_yolo11_to_onnx.py assets/models/yolo11s.pt --imgsz 640
    ```
    W katalogu `assets/models/` pojawi się `yolo11.onnx` (i ewentualnie `yolo11.onnx.data` dla modeli >2GB).
+   Repo zawiera placeholdery `yolo11.onnx` i `yolo11.onnx.data` tylko po to, by Metro się
+   budował — zamień je na swój wyeksportowany model (oraz plik `.data`, jeśli powstanie).
 
 2. Zbuduj aplikację Expo:
    ```bash
