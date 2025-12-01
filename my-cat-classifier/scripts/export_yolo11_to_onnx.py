@@ -66,7 +66,7 @@ def main():
     if onnx_path != target:
         shutil.move(str(onnx_path), target)
 
-    labels_path = ROOT / "assets" / "labels_yolo11.json"
+    labels_path = ROOT / "assets" / "labels.json"
     try:
         names = model.model.names  # type: ignore[attr-defined]
         if isinstance(names, dict):
@@ -76,7 +76,10 @@ def main():
         else:  # pragma: no cover - defensive fallback
             labels = []
         labels_path.write_text(json.dumps(labels, indent=2), encoding="utf-8")
-        print(f"[OK] Labels saved to: {labels_path}")
+        legacy = ROOT / "assets" / "labels_yolo11.json"
+        if legacy != labels_path:
+            legacy.write_text(json.dumps(labels, indent=2), encoding="utf-8")
+        print(f"[OK] Labels saved to: {labels_path} (and {legacy.name} for app bundling)")
     except Exception as exc:  # pragma: no cover - metadata helper
         print(f"[WARN] Could not save labels: {exc}")
 

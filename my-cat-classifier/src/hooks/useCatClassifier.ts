@@ -17,7 +17,9 @@ import {
   YOLO_MAX_DETECTIONS,
 } from '../config/constants';
 
-const labels = require('../../assets/labels_yolo11.json');
+// Używamy etykiet z notebooka (assets/labels.json), żeby ID klas zgadzały się z tym,
+// co było trenowane w YOLO11. Dzięki temu nazwy ras kotów nie zamieniają się na "cls_xx".
+const labels = require('../../assets/labels.json');
 
 type Detection = {
   label: string;
