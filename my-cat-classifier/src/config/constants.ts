@@ -6,12 +6,15 @@ export const COLORS = {
   BORDER: '#222',
 } as const;
 
-export const IMAGENET_MEAN = [0.485, 0.456, 0.406];
-export const IMAGENET_STD = [0.229, 0.224, 0.225];
-
 export const USE_BGR = false;
 export const USE_PNG_LOSSLESS = false; // ustaw na true, by zapisać do PNG (dokładniejszy tensor, większy plik)
 
 export const CAMERA_CAPTURE_INTERVAL_MS = 10;
 export const CAMERA_QUALITY = 1;
 export const CAMERA_STATUS_INTERVAL_MS = 10; // jak często odświeżać status w trybie cichym
+
+// YOLO11 input + NMS params
+export const YOLO_INPUT_SIZE = 640;
+export const YOLO_CONF_THRESHOLD = 0.25;
+export const YOLO_IOU_THRESHOLD = 0.45;
+export const YOLO_MAX_DETECTIONS = 50;
