@@ -18,6 +18,8 @@ import {
 } from '../config/constants';
 
 const labels = require('../../assets/labels.json');
+const EXPECTED_LABELS = labels.length;
+const MAX_LABEL_INDEX = EXPECTED_LABELS - 1;
 
 type Detection = {
   label: string;
@@ -132,69 +134,81 @@ export function useCatClassifier(): CatClassifierHook {
       const outDims = Array.from(dims ?? []);
       const boxes: Detection[] = [];
 
+      const resolveLabel = (cls: number) => {
+        const label = labels[cls];
+        if (label === undefined) {
+          warn(
+            `Pomijam detekcję z nieznaną klasą ${cls} (zakres etykiet: 0–${MAX_LABEL_INDEX}). ` +
+              'Model może być wytrenowany/wyeksportowany z inną liczbą klas niż labels.json.'
+          );
+        }
+        return label;
+      };
+
+      const decodeBoxes = (numBoxes: number, stride: number) => {
+        const clsCount = stride - 5;
+        if (clsCount !== EXPECTED_LABELS) {
+          throw new Error(
+            `Model zwraca ${clsCount} klas (stride ${stride}), a labels.json definiuje ${EXPECTED_LABELS}. ` +
+              'Wyeksportuj ponownie model YOLO z dokładnie tym samym porządkiem klas co assets/labels.json.'
+          );
+        }
+
+        for (let i = 0; i < numBoxes; i += 1) {
+          const base = i * stride;
+
+          const objScore = Number(data[base + 4]);
+          if (objScore < YOLO_CONF_THRESHOLD) continue;
+
+          let bestCls = -1;
+          let bestClsScore = -Infinity;
+          for (let c = 0; c < clsCount; c += 1) {
+            const clsScore = Number(data[base + 5 + c]);
+            if (clsScore > bestClsScore) {
+              bestClsScore = clsScore;
+              bestCls = c;
+            }
+          }
+
+          const score = objScore * bestClsScore;
+          if (score < YOLO_CONF_THRESHOLD) continue;
+
+          const label = resolveLabel(bestCls);
+          if (label === undefined) continue;
+
+          const cx = Number(data[base]);
+          const cy = Number(data[base + 1]);
+          const w = Number(data[base + 2]);
+          const h = Number(data[base + 3]);
+
+          const x1 = cx - w / 2;
+          const y1 = cy - h / 2;
+          const x2 = cx + w / 2;
+          const y2 = cy + h / 2;
+
+          const invRatio = 1 / meta.ratio;
+          const nx1 = Math.max(0, Math.min(1, (x1 - meta.pad.x) * invRatio / meta.origSize.width));
+          const ny1 = Math.max(0, Math.min(1, (y1 - meta.pad.y) * invRatio / meta.origSize.height));
+          const nx2 = Math.max(0, Math.min(1, (x2 - meta.pad.x) * invRatio / meta.origSize.width));
+          const ny2 = Math.max(0, Math.min(1, (y2 - meta.pad.y) * invRatio / meta.origSize.height));
+
+          boxes.push({
+            label,
+            score,
+            box: { x1: nx1, y1: ny1, x2: nx2, y2: ny2 },
+          });
+        }
+      };
+
       if (outDims.length === 3 && outDims[2] >= 6) {
         // [batch, num_boxes, 6+]
         const [batch, numBoxes, stride] = outDims;
         if (batch !== 1) warn('Niespodziewany batch > 1 w wyjściu YOLO');
-        for (let i = 0; i < numBoxes; i += 1) {
-          const base = i * stride;
-          const score = Number(data[base + 4]);
-          if (score < YOLO_CONF_THRESHOLD) continue;
-          const cls = Math.round(Number(data[base + 5] ?? 0));
-          const label = labels[cls];
-          if (label === undefined) {
-            warn(`Pomijam detekcję z nieznaną klasą ${cls}`);
-            continue;
-          }
-
-          const x1 = Number(data[base]);
-          const y1 = Number(data[base + 1]);
-          const x2 = Number(data[base + 2]);
-          const y2 = Number(data[base + 3]);
-
-          const invRatio = 1 / meta.ratio;
-          const nx1 = Math.max(0, Math.min(1, (x1 - meta.pad.x) * invRatio / meta.origSize.width));
-          const ny1 = Math.max(0, Math.min(1, (y1 - meta.pad.y) * invRatio / meta.origSize.height));
-          const nx2 = Math.max(0, Math.min(1, (x2 - meta.pad.x) * invRatio / meta.origSize.width));
-          const ny2 = Math.max(0, Math.min(1, (y2 - meta.pad.y) * invRatio / meta.origSize.height));
-
-          boxes.push({
-            label,
-            score,
-            box: { x1: nx1, y1: ny1, x2: nx2, y2: ny2 },
-          });
-        }
+        decodeBoxes(numBoxes, stride);
       } else if (outDims.length === 2 && outDims[1] >= 6) {
         // [num_boxes, 6+] fallback
         const [numBoxes, stride] = outDims;
-        for (let i = 0; i < numBoxes; i += 1) {
-          const base = i * stride;
-          const score = Number(data[base + 4]);
-          if (score < YOLO_CONF_THRESHOLD) continue;
-          const cls = Math.round(Number(data[base + 5] ?? 0));
-          const label = labels[cls];
-          if (label === undefined) {
-            warn(`Pomijam detekcję z nieznaną klasą ${cls}`);
-            continue;
-          }
-
-          const x1 = Number(data[base]);
-          const y1 = Number(data[base + 1]);
-          const x2 = Number(data[base + 2]);
-          const y2 = Number(data[base + 3]);
-
-          const invRatio = 1 / meta.ratio;
-          const nx1 = Math.max(0, Math.min(1, (x1 - meta.pad.x) * invRatio / meta.origSize.width));
-          const ny1 = Math.max(0, Math.min(1, (y1 - meta.pad.y) * invRatio / meta.origSize.height));
-          const nx2 = Math.max(0, Math.min(1, (x2 - meta.pad.x) * invRatio / meta.origSize.width));
-          const ny2 = Math.max(0, Math.min(1, (y2 - meta.pad.y) * invRatio / meta.origSize.height));
-
-          boxes.push({
-            label,
-            score,
-            box: { x1: nx1, y1: ny1, x2: nx2, y2: ny2 },
-          });
-        }
+        decodeBoxes(numBoxes, stride);
       } else {
         throw new Error(`Nieznany kształt wyjścia YOLO: ${outDims.join('x') || 'brak dims'}`);
       }
