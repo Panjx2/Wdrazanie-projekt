@@ -36,6 +36,11 @@ export default function App() {
     err,
   } = useCatClassifier();
 
+  const [previewLayout, setPreviewLayout] = useState<{ width: number; height: number }>({
+    width: 0,
+    height: 0,
+  });
+
   const [zoom, setZoom] = useState(0);
   const pinchStartZoomRef = useRef(0);
   const sliderStartZoomRef = useRef(0);
@@ -120,19 +125,73 @@ export default function App() {
         onHandlerStateChange={handlePinchStateChange}
         shouldCancelWhenOutside={false}
       >
-        <CameraView
-          ref={cameraRef}
+        <View
           style={{ flex: 1 }}
-          facing="back"
-          mode="picture"
-          animateShutter={false}
-          zoom={zoom}
-          onCameraReady={handleCameraReady}
-          onMountError={handleMountError}
-        />
+          onLayout={(event) => {
+            const { width, height } = event.nativeEvent.layout;
+            setPreviewLayout({ width, height });
+          }}
+        >
+          <CameraView
+            ref={cameraRef}
+            style={{ flex: 1 }}
+            facing="back"
+            mode="picture"
+            animateShutter={false}
+            zoom={zoom}
+            onCameraReady={handleCameraReady}
+            onMountError={handleMountError}
+          />
+
+          {previewLayout.width > 0 && previewLayout.height > 0 && detections.length > 0 && (
+            <View
+              pointerEvents="none"
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+              }}
+            >
+              {detections.map((det, idx) => {
+                const left = det.box.x1 * previewLayout.width;
+                const top = det.box.y1 * previewLayout.height;
+                const width = (det.box.x2 - det.box.x1) * previewLayout.width;
+                const height = (det.box.y2 - det.box.y1) * previewLayout.height;
+                return (
+                  <View
+                    key={`${det.label}_${idx}`}
+                    style={{
+                      position: 'absolute',
+                      left,
+                      top,
+                      width,
+                      height,
+                      borderWidth: 2,
+                      borderColor: '#53ff9d',
+                      borderRadius: 6,
+                      backgroundColor: 'rgba(83,255,157,0.08)',
+                    }}
+                  />
+                );
+              })}
+            </View>
+          )}
+        </View>
       </PinchGestureHandler>
     ),
-    [cameraRef, handleCameraReady, handleMountError, handlePinchGesture, handlePinchStateChange, zoom]
+    [
+      cameraRef,
+      detections,
+      handleCameraReady,
+      handleMountError,
+      handlePinchGesture,
+      handlePinchStateChange,
+      previewLayout.height,
+      previewLayout.width,
+      zoom,
+    ]
   );
 
   const handleReloadModel = useCallback(async () => {
