@@ -42,7 +42,23 @@ async function prepareOnnxWithExternalData() {
 
   const ensureLocalAsset = async (moduleId: number) => {
     const asset = Asset.fromModule(moduleId);
-    if (asset.localUri) return asset.localUri;
+    const ensureValidFile = async (uri: string | null | undefined) => {
+      if (!uri) return null;
+      const info = await FileSystem.getInfoAsync(uri);
+      if (info.exists && info.size && info.size > 0) return uri;
+      return null;
+    };
+
+    const local = await ensureValidFile(asset.localUri);
+    if (local) return local;
+
+    try {
+      const downloaded = await asset.downloadAsync();
+      const validated = await ensureValidFile(downloaded.localUri);
+      if (validated) return validated;
+    } catch (e) {
+      console.warn('[CatApp] Nie udało się pobrać assetu przez Asset.downloadAsync:', e);
+    }
 
     const origin = getDevServerOrigin();
     const remoteUri = (() => {
@@ -60,7 +76,11 @@ async function prepareOnnxWithExternalData() {
 
     const downloadDst = `${FileSystem.cacheDirectory}${asset.fileName}`;
     const result = await FileSystem.downloadAsync(remoteUri, downloadDst);
-    return result.uri;
+    const validated = await ensureValidFile(result.uri);
+    if (!validated) {
+      throw new Error('Pobrany plik modelu jest pusty lub uszkodzony');
+    }
+    return validated;
   };
 
   const [onnxLocalUri, dataLocalUri] = await Promise.all([
@@ -69,11 +89,8 @@ async function prepareOnnxWithExternalData() {
   ]);
 
   const dir = FileSystem.cacheDirectory + 'ort-model/';
-  try {
-    await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
-  } catch (e) {
-    // directory already exists
-  }
+  await FileSystem.deleteAsync(dir, { idempotent: true });
+  await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
 
   const modelDst = `${dir}${MODEL_BASENAME}.onnx`;
   await FileSystem.copyAsync({ from: onnxLocalUri!, to: modelDst });
@@ -81,6 +98,22 @@ async function prepareOnnxWithExternalData() {
   if (dataLocalUri) {
     const dataDst = `${dir}${MODEL_BASENAME}.onnx.data`;
     await FileSystem.copyAsync({ from: dataLocalUri, to: dataDst });
+  }
+
+  const info = await Promise.all([
+    FileSystem.getInfoAsync(modelDst),
+    dataLocalUri ? FileSystem.getInfoAsync(`${dir}${MODEL_BASENAME}.onnx.data`) : null,
+  ]);
+
+  const modelInfo = info[0];
+  const dataInfo = info[1];
+  if (!modelInfo.exists || !modelInfo.size || modelInfo.size === 0) {
+    throw new Error('Skopiowany plik modelu jest pusty. Spróbuj ponownie pobrać asset.');
+  }
+  if (dataLocalUri && (!dataInfo || !dataInfo.exists || !dataInfo.size || dataInfo.size === 0)) {
+    throw new Error(
+      'Skopiowany plik danych modelu jest pusty. Spróbuj ponownie pobrać asset .onnx.data.'
+    );
   }
 
   return modelDst;
