@@ -51,6 +51,12 @@ type CatClassifierHook = {
   err: (...args: unknown[]) => void;
 };
 
+type YoloShape = {
+  numBoxes: number;
+  stride: number;
+  classCount: number;
+};
+
 const MODEL_BASENAME = 'yolo11';
 const ONNX_ASSET = require('../../assets/models/yolo11.onnx');
 const ONNX_DATA_ASSET = require('../../assets/models/yolo11.onnx.data');
@@ -115,6 +121,32 @@ function applyNms(list: Detection[], iou = YOLO_IOU_THRESHOLD, max = YOLO_MAX_DE
   return picked;
 }
 
+function parseYoloShape(dims: ReadonlyArray<number> | undefined): YoloShape {
+  const outDims = Array.from(dims ?? []);
+  if (outDims.length === 3 && outDims[2] >= 6) {
+    // [batch, num_boxes, 6+]
+    const [batch, numBoxes, stride] = outDims;
+    if (batch !== 1) console.warn('[CatApp] Niespodziewany batch > 1 w wyjściu YOLO');
+    return { numBoxes, stride, classCount: stride - 5 };
+  }
+  if (outDims.length === 2 && outDims[1] >= 6) {
+    // [num_boxes, 6+] fallback
+    const [numBoxes, stride] = outDims;
+    return { numBoxes, stride, classCount: stride - 5 };
+  }
+
+  throw new Error(`Nieznany kształt wyjścia YOLO: ${outDims.join('x') || 'brak dims'}`);
+}
+
+function ensureYoloClassesMatch(shape: YoloShape) {
+  if (shape.classCount !== EXPECTED_LABELS) {
+    throw new Error(
+      `Model zwraca ${shape.classCount} klas (stride ${shape.stride}), a labels.json definiuje ${EXPECTED_LABELS}. ` +
+        'Wyeksportuj ponownie model YOLO z dokładnie tym samym porządkiem klas co assets/labels.json.'
+    );
+  }
+}
+
 export function useCatClassifier(): CatClassifierHook {
   const [status, setStatus] = useState('⏳ Inicjalizacja…');
   const [busy, setBusy] = useState(false);
@@ -129,9 +161,34 @@ export function useCatClassifier(): CatClassifierHook {
   const warn = useCallback((...args: unknown[]) => console.warn('[CatApp]', ...args), []);
   const err = useCallback((...args: unknown[]) => console.error('[CatApp]', ...args), []);
 
+  const validateModelShape = useCallback(async () => {
+    const session = sessionRef.current;
+    if (!session) return;
+
+    const inputName = session.inputNames?.[0] ?? 'images';
+    const tensor = new ort.Tensor('float32', new Float32Array(3 * YOLO_INPUT_SIZE * YOLO_INPUT_SIZE), [
+      1,
+      3,
+      YOLO_INPUT_SIZE,
+      YOLO_INPUT_SIZE,
+    ]);
+
+    const outputMap = await session.run({ [inputName]: tensor });
+    const keys = Object.keys(outputMap);
+    const outName = session.outputNames?.[0] ?? keys[0];
+    const outT = outputMap[outName];
+    if (!outT?.dims) throw new Error(`Brak wymiarów wyjścia modelu "${outName}" podczas walidacji.`);
+
+    const shape = parseYoloShape(outT.dims);
+    ensureYoloClassesMatch(shape);
+    log(`Walidacja modelu: ${shape.classCount} klas, stride ${shape.stride}, boxów ${shape.numBoxes}`);
+  }, [log]);
+
   const decodeYoloOutput = useCallback(
     (data: Float32Array | number[], dims: ReadonlyArray<number> | undefined, meta: LetterboxMeta) => {
-      const outDims = Array.from(dims ?? []);
+      const { numBoxes, stride, classCount } = parseYoloShape(dims);
+      ensureYoloClassesMatch({ numBoxes, stride, classCount });
+
       const boxes: Detection[] = [];
 
       const resolveLabel = (cls: number) => {
@@ -145,72 +202,49 @@ export function useCatClassifier(): CatClassifierHook {
         return label;
       };
 
-      const decodeBoxes = (numBoxes: number, stride: number) => {
-        const clsCount = stride - 5;
-        if (clsCount !== EXPECTED_LABELS) {
-          throw new Error(
-            `Model zwraca ${clsCount} klas (stride ${stride}), a labels.json definiuje ${EXPECTED_LABELS}. ` +
-              'Wyeksportuj ponownie model YOLO z dokładnie tym samym porządkiem klas co assets/labels.json.'
-          );
-        }
+      for (let i = 0; i < numBoxes; i += 1) {
+        const base = i * stride;
 
-        for (let i = 0; i < numBoxes; i += 1) {
-          const base = i * stride;
+        const objScore = Number(data[base + 4]);
+        if (objScore < YOLO_CONF_THRESHOLD) continue;
 
-          const objScore = Number(data[base + 4]);
-          if (objScore < YOLO_CONF_THRESHOLD) continue;
-
-          let bestCls = -1;
-          let bestClsScore = -Infinity;
-          for (let c = 0; c < clsCount; c += 1) {
-            const clsScore = Number(data[base + 5 + c]);
-            if (clsScore > bestClsScore) {
-              bestClsScore = clsScore;
-              bestCls = c;
-            }
+        let bestCls = -1;
+        let bestClsScore = -Infinity;
+        for (let c = 0; c < classCount; c += 1) {
+          const clsScore = Number(data[base + 5 + c]);
+          if (clsScore > bestClsScore) {
+            bestClsScore = clsScore;
+            bestCls = c;
           }
-
-          const score = objScore * bestClsScore;
-          if (score < YOLO_CONF_THRESHOLD) continue;
-
-          const label = resolveLabel(bestCls);
-          if (label === undefined) continue;
-
-          const cx = Number(data[base]);
-          const cy = Number(data[base + 1]);
-          const w = Number(data[base + 2]);
-          const h = Number(data[base + 3]);
-
-          const x1 = cx - w / 2;
-          const y1 = cy - h / 2;
-          const x2 = cx + w / 2;
-          const y2 = cy + h / 2;
-
-          const invRatio = 1 / meta.ratio;
-          const nx1 = Math.max(0, Math.min(1, (x1 - meta.pad.x) * invRatio / meta.origSize.width));
-          const ny1 = Math.max(0, Math.min(1, (y1 - meta.pad.y) * invRatio / meta.origSize.height));
-          const nx2 = Math.max(0, Math.min(1, (x2 - meta.pad.x) * invRatio / meta.origSize.width));
-          const ny2 = Math.max(0, Math.min(1, (y2 - meta.pad.y) * invRatio / meta.origSize.height));
-
-          boxes.push({
-            label,
-            score,
-            box: { x1: nx1, y1: ny1, x2: nx2, y2: ny2 },
-          });
         }
-      };
 
-      if (outDims.length === 3 && outDims[2] >= 6) {
-        // [batch, num_boxes, 6+]
-        const [batch, numBoxes, stride] = outDims;
-        if (batch !== 1) warn('Niespodziewany batch > 1 w wyjściu YOLO');
-        decodeBoxes(numBoxes, stride);
-      } else if (outDims.length === 2 && outDims[1] >= 6) {
-        // [num_boxes, 6+] fallback
-        const [numBoxes, stride] = outDims;
-        decodeBoxes(numBoxes, stride);
-      } else {
-        throw new Error(`Nieznany kształt wyjścia YOLO: ${outDims.join('x') || 'brak dims'}`);
+        const score = objScore * bestClsScore;
+        if (score < YOLO_CONF_THRESHOLD) continue;
+
+        const label = resolveLabel(bestCls);
+        if (label === undefined) continue;
+
+        const cx = Number(data[base]);
+        const cy = Number(data[base + 1]);
+        const w = Number(data[base + 2]);
+        const h = Number(data[base + 3]);
+
+        const x1 = cx - w / 2;
+        const y1 = cy - h / 2;
+        const x2 = cx + w / 2;
+        const y2 = cy + h / 2;
+
+        const invRatio = 1 / meta.ratio;
+        const nx1 = Math.max(0, Math.min(1, (x1 - meta.pad.x) * invRatio / meta.origSize.width));
+        const ny1 = Math.max(0, Math.min(1, (y1 - meta.pad.y) * invRatio / meta.origSize.height));
+        const nx2 = Math.max(0, Math.min(1, (x2 - meta.pad.x) * invRatio / meta.origSize.width));
+        const ny2 = Math.max(0, Math.min(1, (y2 - meta.pad.y) * invRatio / meta.origSize.height));
+
+        boxes.push({
+          label,
+          score,
+          box: { x1: nx1, y1: ny1, x2: nx2, y2: ny2 },
+        });
       }
 
       return applyNms(boxes);
@@ -366,6 +400,8 @@ export function useCatClassifier(): CatClassifierHook {
         executionProviders,
       });
 
+      await validateModelShape();
+
       log('Input names:', sessionRef.current.inputNames ?? []);
       log('Output names:', sessionRef.current.outputNames ?? []);
       setStatus('✅ Gotowe');
@@ -375,7 +411,7 @@ export function useCatClassifier(): CatClassifierHook {
       setStatus('❌ Błąd ładowania modelu');
       Alert.alert('Model error', String(e?.message || e));
     }
-  }, [err, log]);
+  }, [err, log, validateModelShape]);
 
   useEffect(() => {
     void loadModel();
