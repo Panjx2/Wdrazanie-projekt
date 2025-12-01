@@ -11,6 +11,7 @@ it for React Native.
 from __future__ import annotations
 
 import argparse
+import json
 import shutil
 from pathlib import Path
 
@@ -64,6 +65,20 @@ def main():
 
     if onnx_path != target:
         shutil.move(str(onnx_path), target)
+
+    labels_path = ROOT / "assets" / "labels_yolo11.json"
+    try:
+        names = model.model.names  # type: ignore[attr-defined]
+        if isinstance(names, dict):
+            labels = [name for _, name in sorted(names.items())]
+        elif isinstance(names, (list, tuple)):
+            labels = list(names)
+        else:  # pragma: no cover - defensive fallback
+            labels = []
+        labels_path.write_text(json.dumps(labels, indent=2), encoding="utf-8")
+        print(f"[OK] Labels saved to: {labels_path}")
+    except Exception as exc:  # pragma: no cover - metadata helper
+        print(f"[WARN] Could not save labels: {exc}")
 
     print(f"[OK] ONNX saved to: {target}")
     print("Place the resulting .onnx (and .onnx.data if generated) under assets/models/ for bundling.")

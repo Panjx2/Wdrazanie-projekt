@@ -17,7 +17,7 @@ import {
   YOLO_MAX_DETECTIONS,
 } from '../config/constants';
 
-const labels = require('../../assets/labels.json');
+const labels = require('../../assets/labels_yolo11.json');
 
 type Detection = {
   label: string;
