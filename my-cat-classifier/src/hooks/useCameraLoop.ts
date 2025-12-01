@@ -3,15 +3,16 @@ import { Alert } from 'react-native';
 import { CameraView, useCameraPermissions, type CameraPermissionResponse } from 'expo-camera';
 
 import { CAMERA_CAPTURE_INTERVAL_MS, CAMERA_QUALITY } from '../config/constants';
+import type { ResizeResult } from './useCatClassifier';
 
 interface UseCameraLoopParams {
   ready: boolean;
   updateStatus: (value: string) => void;
   classifyBase64: (
-    jpegBase64: string,
+    resized: ResizeResult,
     options?: { silent?: boolean }
   ) => Promise<Array<{ label: string; score: number }> | null>;
-  resizeToModelInput: (uri: string, context: 'gallery' | 'camera') => Promise<{ base64: string }>;
+  resizeToModelInput: (uri: string, context: 'gallery' | 'camera') => Promise<ResizeResult>;
   resetSilentStatus: () => void;
   clearPreview?: () => void;
   warn: (...args: unknown[]) => void;
@@ -90,7 +91,7 @@ export function useCameraLoop({
       });
       if (photo?.uri) {
         const resized = await resizeToModelInput(photo.uri, 'camera');
-        await classifyBase64(resized.base64, { silent: true });
+        await classifyBase64(resized, { silent: true });
       }
     } catch (e) {
       warn('Kamera: błąd przechwytywania klatki', (e as any)?.message || e);
