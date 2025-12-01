@@ -28,11 +28,15 @@ const NOT_CAT_INDEX = labels.indexOf('Not cat');
 const CLASSIFIER_INPUT_SIZE = 224;
 const COCO_CAT_CLASS_ID = 15;
 
+type Box = { x1: number; y1: number; x2: number; y2: number }; // współrzędne znormalizowane do 0..1 względem zdjęcia wejściowego
+
 type Detection = {
   label: string;
   score: number;
-  box: { x1: number; y1: number; x2: number; y2: number }; // współrzędne znormalizowane do 0..1 względem zdjęcia wejściowego
+  box: Box | null;
 };
+
+type YoloDetection = Detection & { box: Box };
 
 export type ResizeResult = ImageManipulator.ImageResult & { base64: string };
 
@@ -139,7 +143,7 @@ async function prepareClassifierOnnx() {
   return modelDst;
 }
 
-function boxIou(a: Detection['box'], b: Detection['box']) {
+function boxIou(a: Box, b: Box) {
   const x1 = Math.max(a.x1, b.x1);
   const y1 = Math.max(a.y1, b.y1);
   const x2 = Math.min(a.x2, b.x2);
@@ -151,14 +155,14 @@ function boxIou(a: Detection['box'], b: Detection['box']) {
   return union === 0 ? 0 : inter / union;
 }
 
-function applyNms(list: Detection[], iou = YOLO_IOU_THRESHOLD, max = YOLO_MAX_DETECTIONS) {
+function applyNms(list: YoloDetection[], iou = YOLO_IOU_THRESHOLD, max = YOLO_MAX_DETECTIONS) {
   const sorted = [...list].sort((a, b) => b.score - a.score);
   const picked: Detection[] = [];
 
   while (sorted.length && picked.length < max) {
     const current = sorted.shift()!;
     picked.push(current);
-    const remaining: Detection[] = [];
+    const remaining: YoloDetection[] = [];
     for (const det of sorted) {
       if (boxIou(current.box, det.box) < iou) {
         remaining.push(det);
@@ -264,7 +268,7 @@ export function useCatClassifier(): CatClassifierHook {
     (data: Float32Array | number[], dims: ReadonlyArray<number> | undefined, meta: LetterboxMeta) => {
       const shape = parseYoloShape(dims);
 
-      const boxes: Detection[] = [];
+      const boxes: YoloDetection[] = [];
 
       for (let i = 0; i < shape.numBoxes; i += 1) {
         const base = i * shape.stride;
@@ -331,8 +335,8 @@ export function useCatClassifier(): CatClassifierHook {
     []
   );
 
-  const pickLargestBox = useCallback((list: Detection[]) => {
-    let best: Detection | null = null;
+  const pickLargestBox = useCallback((list: YoloDetection[]) => {
+    let best: YoloDetection | null = null;
     let bestArea = -Infinity;
 
     for (const det of list) {
@@ -347,7 +351,7 @@ export function useCatClassifier(): CatClassifierHook {
   }, []);
 
   const cropToClassifierInput = useCallback(
-    async (resized: ResizeResult, cropBox: Detection['box'] | null) => {
+    async (resized: ResizeResult, cropBox: Box | null) => {
       const width = resized.width ?? YOLO_INPUT_SIZE;
       const height = resized.height ?? YOLO_INPUT_SIZE;
 
@@ -459,11 +463,13 @@ export function useCatClassifier(): CatClassifierHook {
         const cropBase64 = await cropToClassifierInput(resized, cropSource?.box ?? null);
         const classification = await runClassifier(cropBase64, { excludeNotCat: Boolean(cropSource) });
 
+        const box = classification.label === 'Not cat' ? null : cropSource?.box ?? { x1: 0, y1: 0, x2: 1, y2: 1 };
+
         const output: Detection[] = [
           {
             label: classification.label,
             score: classification.score,
-            box: cropSource?.box ?? { x1: 0, y1: 0, x2: 1, y2: 1 },
+            box,
           },
         ];
 

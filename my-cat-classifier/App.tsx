@@ -36,6 +36,11 @@ export default function App() {
     err,
   } = useCatClassifier();
 
+  const boxDetections = useMemo(
+    () => detections.filter(det => det.box && det.label !== 'Not cat'),
+    [detections]
+  );
+
   const [previewLayout, setPreviewLayout] = useState<{ width: number; height: number }>({
     width: 0,
     height: 0,
@@ -143,7 +148,7 @@ export default function App() {
             onMountError={handleMountError}
           />
 
-          {previewLayout.width > 0 && previewLayout.height > 0 && detections.length > 0 && (
+          {previewLayout.width > 0 && previewLayout.height > 0 && boxDetections.length > 0 && (
             <View
               pointerEvents="none"
               style={{
@@ -154,11 +159,12 @@ export default function App() {
                 bottom: 0,
               }}
             >
-              {detections.map((det, idx) => {
-                const left = det.box.x1 * previewLayout.width;
-                const top = det.box.y1 * previewLayout.height;
-                const width = (det.box.x2 - det.box.x1) * previewLayout.width;
-                const height = (det.box.y2 - det.box.y1) * previewLayout.height;
+              {boxDetections.map((det, idx) => {
+                const box = det.box!;
+                const left = box.x1 * previewLayout.width;
+                const top = box.y1 * previewLayout.height;
+                const width = (box.x2 - box.x1) * previewLayout.width;
+                const height = (box.y2 - box.y1) * previewLayout.height;
                 return (
                   <View
                     key={`${det.label}_${idx}`}
@@ -183,7 +189,7 @@ export default function App() {
     ),
     [
       cameraRef,
-      detections,
+      boxDetections,
       handleCameraReady,
       handleMountError,
       handlePinchGesture,
