@@ -23,6 +23,7 @@ import {
 
 const labels = require('../../assets/labels.json');
 const EXPECTED_LABELS = labels.length;
+const NOT_CAT_INDEX = labels.indexOf('Not cat');
 
 const CLASSIFIER_INPUT_SIZE = 224;
 const COCO_CAT_CLASS_ID = 15;
@@ -379,7 +380,7 @@ export function useCatClassifier(): CatClassifierHook {
   );
 
   const runClassifier = useCallback(
-    async (cropBase64: string) => {
+    async (cropBase64: string, { excludeNotCat = false } = {}) => {
       const session = classifierSessionRef.current;
       if (!session) throw new Error('Sesja klasyfikatora niegotowa');
 
@@ -394,8 +395,16 @@ export function useCatClassifier(): CatClassifierHook {
       const logits = logitsT?.data as Float32Array | undefined;
       if (!logits?.length) throw new Error('Puste wyjście klasyfikatora');
 
-      const max = Math.max(...logits);
-      const exps = logits.map(v => Math.exp(v - max));
+      const candidateIndices = logits.map((_, idx) => idx).filter(idx => {
+        if (!excludeNotCat) return true;
+        if (NOT_CAT_INDEX === -1) return true;
+        return idx !== NOT_CAT_INDEX;
+      });
+
+      const filteredLogits = candidateIndices.map(idx => logits[idx]);
+
+      const max = Math.max(...filteredLogits);
+      const exps = filteredLogits.map(v => Math.exp(v - max));
       const sum = exps.reduce((a, b) => a + b, 0);
       const probs = exps.map(v => v / sum);
 
@@ -404,7 +413,7 @@ export function useCatClassifier(): CatClassifierHook {
       for (let i = 0; i < probs.length; i += 1) {
         if (probs[i] > bestScore) {
           bestScore = probs[i];
-          bestIdx = i;
+          bestIdx = candidateIndices[i];
         }
       }
 
@@ -448,7 +457,7 @@ export function useCatClassifier(): CatClassifierHook {
         const cropSource = pickLargestBox(limited);
 
         const cropBase64 = await cropToClassifierInput(resized, cropSource?.box ?? null);
-        const classification = await runClassifier(cropBase64);
+        const classification = await runClassifier(cropBase64, { excludeNotCat: Boolean(cropSource) });
 
         const output: Detection[] = [
           {
