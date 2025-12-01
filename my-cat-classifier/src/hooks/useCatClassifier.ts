@@ -12,6 +12,8 @@ import {
   USE_BGR,
   USE_PNG_LOSSLESS,
   YOLO_CONF_THRESHOLD,
+  YOLO_ALLOWED_CLASS_IDS,
+  YOLO_DEFAULT_LABEL,
   YOLO_INPUT_SIZE,
   YOLO_IOU_THRESHOLD,
   YOLO_MAX_DETECTIONS,
@@ -131,6 +133,12 @@ export function useCatClassifier(): CatClassifierHook {
     (data: Float32Array | number[], dims: ReadonlyArray<number> | undefined, meta: LetterboxMeta) => {
       const outDims = Array.from(dims ?? []);
       const boxes: Detection[] = [];
+      const allowedClasses =
+        YOLO_ALLOWED_CLASS_IDS && YOLO_ALLOWED_CLASS_IDS.length > 0
+          ? YOLO_ALLOWED_CLASS_IDS
+          : labels.map((_, idx) => idx);
+      const allowedClassSet = new Set(allowedClasses);
+      const fallbackLabel = YOLO_DEFAULT_LABEL ?? 'Unknown cat';
 
       if (outDims.length === 3 && outDims[2] >= 6) {
         // [batch, num_boxes, 6+]
@@ -141,6 +149,7 @@ export function useCatClassifier(): CatClassifierHook {
           const score = Number(data[base + 4]);
           if (score < YOLO_CONF_THRESHOLD) continue;
           const cls = Math.round(Number(data[base + 5] ?? 0));
+          if (!allowedClassSet.has(cls)) continue;
 
           const x1 = Number(data[base]);
           const y1 = Number(data[base + 1]);
@@ -154,7 +163,7 @@ export function useCatClassifier(): CatClassifierHook {
           const ny2 = Math.max(0, Math.min(1, (y2 - meta.pad.y) * invRatio / meta.origSize.height));
 
           boxes.push({
-            label: labels[cls] ?? `cls_${cls}`,
+            label: labels[cls] ?? fallbackLabel,
             score,
             box: { x1: nx1, y1: ny1, x2: nx2, y2: ny2 },
           });
@@ -167,6 +176,7 @@ export function useCatClassifier(): CatClassifierHook {
           const score = Number(data[base + 4]);
           if (score < YOLO_CONF_THRESHOLD) continue;
           const cls = Math.round(Number(data[base + 5] ?? 0));
+          if (!allowedClassSet.has(cls)) continue;
 
           const x1 = Number(data[base]);
           const y1 = Number(data[base + 1]);
@@ -180,7 +190,7 @@ export function useCatClassifier(): CatClassifierHook {
           const ny2 = Math.max(0, Math.min(1, (y2 - meta.pad.y) * invRatio / meta.origSize.height));
 
           boxes.push({
-            label: labels[cls] ?? `cls_${cls}`,
+            label: labels[cls] ?? fallbackLabel,
             score,
             box: { x1: nx1, y1: ny1, x2: nx2, y2: ny2 },
           });
