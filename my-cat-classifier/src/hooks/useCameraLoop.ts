@@ -10,8 +10,8 @@ interface UseCameraLoopParams {
   classifyBase64: (
     jpegBase64: string,
     options?: { silent?: boolean }
-  ) => Promise<Array<{ label: string; p: number }> | null>;
-  resizeTo224Base64: (uri: string, context: 'gallery' | 'camera') => Promise<{ base64: string }>;
+  ) => Promise<Array<{ label: string; score: number }> | null>;
+  resizeToModelInput: (uri: string, context: 'gallery' | 'camera') => Promise<{ base64: string }>;
   resetSilentStatus: () => void;
   clearPreview?: () => void;
   warn: (...args: unknown[]) => void;
@@ -35,7 +35,7 @@ export function useCameraLoop({
   ready,
   updateStatus,
   classifyBase64,
-  resizeTo224Base64,
+  resizeToModelInput,
   resetSilentStatus,
   clearPreview,
   warn,
@@ -89,7 +89,7 @@ export function useCameraLoop({
         skipProcessing: true,
       });
       if (photo?.uri) {
-        const resized = await resizeTo224Base64(photo.uri, 'camera');
+        const resized = await resizeToModelInput(photo.uri, 'camera');
         await classifyBase64(resized.base64, { silent: true });
       }
     } catch (e) {
@@ -97,7 +97,7 @@ export function useCameraLoop({
     } finally {
       takingPictureRef.current = false;
     }
-  }, [cameraActive, cameraReady, capturePaused, classifyBase64, ready, resizeTo224Base64, warn]);
+  }, [cameraActive, cameraReady, capturePaused, classifyBase64, ready, resizeToModelInput, warn]);
 
   const startCamera = useCallback(async () => {
     if (cameraActive) return;
