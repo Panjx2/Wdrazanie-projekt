@@ -51,11 +51,20 @@ type CatClassifierHook = {
   err: (...args: unknown[]) => void;
 };
 
-type YoloShape = {
+type RawYoloShape = {
+  format: 'raw';
   numBoxes: number;
   stride: number;
   classCount: number;
 };
+
+type NmsYoloShape = {
+  format: 'nms';
+  numBoxes: number;
+  stride: number;
+};
+
+type YoloShape = RawYoloShape | NmsYoloShape;
 
 const MODEL_BASENAME = 'yolo11';
 const ONNX_ASSET = require('../../assets/models/yolo11.onnx');
@@ -127,18 +136,21 @@ function parseYoloShape(dims: ReadonlyArray<number> | undefined): YoloShape {
     // [batch, num_boxes, 6+]
     const [batch, numBoxes, stride] = outDims;
     if (batch !== 1) console.warn('[CatApp] Niespodziewany batch > 1 w wyjściu YOLO');
-    return { numBoxes, stride, classCount: stride - 5 };
+    if (stride === 6) return { format: 'nms', numBoxes, stride };
+    return { format: 'raw', numBoxes, stride, classCount: stride - 5 };
   }
   if (outDims.length === 2 && outDims[1] >= 6) {
     // [num_boxes, 6+] fallback
     const [numBoxes, stride] = outDims;
-    return { numBoxes, stride, classCount: stride - 5 };
+    if (stride === 6) return { format: 'nms', numBoxes, stride };
+    return { format: 'raw', numBoxes, stride, classCount: stride - 5 };
   }
 
   throw new Error(`Nieznany kształt wyjścia YOLO: ${outDims.join('x') || 'brak dims'}`);
 }
 
 function ensureYoloClassesMatch(shape: YoloShape) {
+  if (shape.format === 'nms') return; // wyjście NMS nie zawiera pełnej liczby klas
   if (shape.classCount !== EXPECTED_LABELS) {
     throw new Error(
       `Model zwraca ${shape.classCount} klas (stride ${shape.stride}), a labels.json definiuje ${EXPECTED_LABELS}. ` +
@@ -181,13 +193,17 @@ export function useCatClassifier(): CatClassifierHook {
 
     const shape = parseYoloShape(outT.dims);
     ensureYoloClassesMatch(shape);
-    log(`Walidacja modelu: ${shape.classCount} klas, stride ${shape.stride}, boxów ${shape.numBoxes}`);
+    const shapeMsg =
+      shape.format === 'nms'
+        ? `wyjście NMS (xyxy, score, class), stride ${shape.stride}, boxów ${shape.numBoxes}`
+        : `${shape.classCount} klas, stride ${shape.stride}, boxów ${shape.numBoxes}`;
+    log(`Walidacja modelu: ${shapeMsg}`);
   }, [log]);
 
   const decodeYoloOutput = useCallback(
     (data: Float32Array | number[], dims: ReadonlyArray<number> | undefined, meta: LetterboxMeta) => {
-      const { numBoxes, stride, classCount } = parseYoloShape(dims);
-      ensureYoloClassesMatch({ numBoxes, stride, classCount });
+      const shape = parseYoloShape(dims);
+      ensureYoloClassesMatch(shape);
 
       const boxes: Detection[] = [];
 
@@ -202,49 +218,75 @@ export function useCatClassifier(): CatClassifierHook {
         return label;
       };
 
-      for (let i = 0; i < numBoxes; i += 1) {
-        const base = i * stride;
+      for (let i = 0; i < shape.numBoxes; i += 1) {
+        const base = i * shape.stride;
 
-        const objScore = Number(data[base + 4]);
-        if (objScore < YOLO_CONF_THRESHOLD) continue;
+        if (shape.format === 'nms') {
+          const score = Number(data[base + 4]);
+          if (score < YOLO_CONF_THRESHOLD) continue;
 
-        let bestCls = -1;
-        let bestClsScore = -Infinity;
-        for (let c = 0; c < classCount; c += 1) {
-          const clsScore = Number(data[base + 5 + c]);
-          if (clsScore > bestClsScore) {
-            bestClsScore = clsScore;
-            bestCls = c;
+          const cls = Math.round(Number(data[base + 5]));
+          const label = resolveLabel(cls);
+          if (label === undefined) continue;
+
+          const x1 = Number(data[base]);
+          const y1 = Number(data[base + 1]);
+          const x2 = Number(data[base + 2]);
+          const y2 = Number(data[base + 3]);
+
+          const invRatio = 1 / meta.ratio;
+          const nx1 = Math.max(0, Math.min(1, (x1 - meta.pad.x) * invRatio / meta.origSize.width));
+          const ny1 = Math.max(0, Math.min(1, (y1 - meta.pad.y) * invRatio / meta.origSize.height));
+          const nx2 = Math.max(0, Math.min(1, (x2 - meta.pad.x) * invRatio / meta.origSize.width));
+          const ny2 = Math.max(0, Math.min(1, (y2 - meta.pad.y) * invRatio / meta.origSize.height));
+
+          boxes.push({
+            label,
+            score,
+            box: { x1: nx1, y1: ny1, x2: nx2, y2: ny2 },
+          });
+        } else {
+          const objScore = Number(data[base + 4]);
+          if (objScore < YOLO_CONF_THRESHOLD) continue;
+
+          let bestCls = -1;
+          let bestClsScore = -Infinity;
+          for (let c = 0; c < shape.classCount; c += 1) {
+            const clsScore = Number(data[base + 5 + c]);
+            if (clsScore > bestClsScore) {
+              bestClsScore = clsScore;
+              bestCls = c;
+            }
           }
+
+          const score = objScore * bestClsScore;
+          if (score < YOLO_CONF_THRESHOLD) continue;
+
+          const label = resolveLabel(bestCls);
+          if (label === undefined) continue;
+
+          const cx = Number(data[base]);
+          const cy = Number(data[base + 1]);
+          const w = Number(data[base + 2]);
+          const h = Number(data[base + 3]);
+
+          const x1 = cx - w / 2;
+          const y1 = cy - h / 2;
+          const x2 = cx + w / 2;
+          const y2 = cy + h / 2;
+
+          const invRatio = 1 / meta.ratio;
+          const nx1 = Math.max(0, Math.min(1, (x1 - meta.pad.x) * invRatio / meta.origSize.width));
+          const ny1 = Math.max(0, Math.min(1, (y1 - meta.pad.y) * invRatio / meta.origSize.height));
+          const nx2 = Math.max(0, Math.min(1, (x2 - meta.pad.x) * invRatio / meta.origSize.width));
+          const ny2 = Math.max(0, Math.min(1, (y2 - meta.pad.y) * invRatio / meta.origSize.height));
+
+          boxes.push({
+            label,
+            score,
+            box: { x1: nx1, y1: ny1, x2: nx2, y2: ny2 },
+          });
         }
-
-        const score = objScore * bestClsScore;
-        if (score < YOLO_CONF_THRESHOLD) continue;
-
-        const label = resolveLabel(bestCls);
-        if (label === undefined) continue;
-
-        const cx = Number(data[base]);
-        const cy = Number(data[base + 1]);
-        const w = Number(data[base + 2]);
-        const h = Number(data[base + 3]);
-
-        const x1 = cx - w / 2;
-        const y1 = cy - h / 2;
-        const x2 = cx + w / 2;
-        const y2 = cy + h / 2;
-
-        const invRatio = 1 / meta.ratio;
-        const nx1 = Math.max(0, Math.min(1, (x1 - meta.pad.x) * invRatio / meta.origSize.width));
-        const ny1 = Math.max(0, Math.min(1, (y1 - meta.pad.y) * invRatio / meta.origSize.height));
-        const nx2 = Math.max(0, Math.min(1, (x2 - meta.pad.x) * invRatio / meta.origSize.width));
-        const ny2 = Math.max(0, Math.min(1, (y2 - meta.pad.y) * invRatio / meta.origSize.height));
-
-        boxes.push({
-          label,
-          score,
-          box: { x1: nx1, y1: ny1, x2: nx2, y2: ny2 },
-        });
       }
 
       return applyNms(boxes);
