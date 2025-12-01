@@ -36,6 +36,16 @@ export default function App() {
     err,
   } = useCatClassifier();
 
+  const boxDetections = useMemo(
+    () => detections.filter(det => det.box && det.label !== 'Not cat'),
+    [detections]
+  );
+
+  const [previewLayout, setPreviewLayout] = useState<{ width: number; height: number }>({
+    width: 0,
+    height: 0,
+  });
+
   const [zoom, setZoom] = useState(0);
   const pinchStartZoomRef = useRef(0);
   const sliderStartZoomRef = useRef(0);
@@ -120,19 +130,74 @@ export default function App() {
         onHandlerStateChange={handlePinchStateChange}
         shouldCancelWhenOutside={false}
       >
-        <CameraView
-          ref={cameraRef}
+        <View
           style={{ flex: 1 }}
-          facing="back"
-          mode="picture"
-          animateShutter={false}
-          zoom={zoom}
-          onCameraReady={handleCameraReady}
-          onMountError={handleMountError}
-        />
+          onLayout={(event) => {
+            const { width, height } = event.nativeEvent.layout;
+            setPreviewLayout({ width, height });
+          }}
+        >
+          <CameraView
+            ref={cameraRef}
+            style={{ flex: 1 }}
+            facing="back"
+            mode="picture"
+            animateShutter={false}
+            zoom={zoom}
+            onCameraReady={handleCameraReady}
+            onMountError={handleMountError}
+          />
+
+          {previewLayout.width > 0 && previewLayout.height > 0 && boxDetections.length > 0 && (
+            <View
+              pointerEvents="none"
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+              }}
+            >
+              {boxDetections.map((det, idx) => {
+                const box = det.box!;
+                const left = box.x1 * previewLayout.width;
+                const top = box.y1 * previewLayout.height;
+                const width = (box.x2 - box.x1) * previewLayout.width;
+                const height = (box.y2 - box.y1) * previewLayout.height;
+                return (
+                  <View
+                    key={`${det.label}_${idx}`}
+                    style={{
+                      position: 'absolute',
+                      left,
+                      top,
+                      width,
+                      height,
+                      borderWidth: 2,
+                      borderColor: '#53ff9d',
+                      borderRadius: 6,
+                      backgroundColor: 'rgba(83,255,157,0.08)',
+                    }}
+                  />
+                );
+              })}
+            </View>
+          )}
+        </View>
       </PinchGestureHandler>
     ),
-    [cameraRef, handleCameraReady, handleMountError, handlePinchGesture, handlePinchStateChange, zoom]
+    [
+      cameraRef,
+      boxDetections,
+      handleCameraReady,
+      handleMountError,
+      handlePinchGesture,
+      handlePinchStateChange,
+      previewLayout.height,
+      previewLayout.width,
+      zoom,
+    ]
   );
 
   const handleReloadModel = useCallback(async () => {
@@ -299,8 +364,9 @@ export default function App() {
                 data={detections}
                 keyExtractor={(item, idx) => `${item.label}_${idx}`}
                 renderItem={({ item }) => {
-                  const wPct = Math.max(0, item.box.x2 - item.box.x1) * 100;
-                  const hPct = Math.max(0, item.box.y2 - item.box.y1) * 100;
+                  const box = item.box;
+                  const wPct = box ? Math.max(0, box.x2 - box.x1) * 100 : null;
+                  const hPct = box ? Math.max(0, box.y2 - box.y1) * 100 : null;
                   return (
                     <View
                       style={{
@@ -312,7 +378,9 @@ export default function App() {
                       <View style={{ flex: 1 }}>
                         <Text style={{ color: FG, fontSize: 13, fontWeight: '600' }}>{item.label}</Text>
                         <Text style={{ color: FG_MUTED, fontSize: 11 }}>
-                          {wPct.toFixed(1)}% × {hPct.toFixed(1)}% kadru
+                          {wPct === null || hPct === null
+                            ? 'Pełny kadr (brak boxu detekcji)'
+                            : `${wPct.toFixed(1)}% × ${hPct.toFixed(1)}% kadru`}
                         </Text>
                       </View>
                       <Text style={{ color: FG_MUTED, fontSize: 12 }}>{(item.score * 100).toFixed(1)}%</Text>

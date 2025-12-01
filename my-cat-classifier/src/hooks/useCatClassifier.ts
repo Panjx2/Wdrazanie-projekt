@@ -6,7 +6,11 @@ import * as ImageManipulator from 'expo-image-manipulator';
 import { Asset } from 'expo-asset';
 import * as FileSystem from 'expo-file-system';
 
-import { yoloLetterboxChwFromBase64, type LetterboxMeta } from '../utils/preprocess';
+import {
+  chwFromBase64JPEG224,
+  yoloLetterboxChwFromBase64,
+  type LetterboxMeta,
+} from '../utils/preprocess';
 import {
   CAMERA_STATUS_INTERVAL_MS,
   USE_BGR,
@@ -18,14 +22,23 @@ import {
 } from '../config/constants';
 
 const labels = require('../../assets/labels.json');
+const EXPECTED_LABELS = labels.length;
+const NOT_CAT_INDEX = labels.indexOf('Not cat');
+
+const CLASSIFIER_INPUT_SIZE = 224;
+const COCO_CAT_CLASS_ID = 15;
+
+type Box = { x1: number; y1: number; x2: number; y2: number }; // współrzędne znormalizowane do 0..1 względem zdjęcia wejściowego
 
 type Detection = {
   label: string;
   score: number;
-  box: { x1: number; y1: number; x2: number; y2: number }; // współrzędne znormalizowane do 0..1 względem zdjęcia wejściowego
+  box: Box | null;
 };
 
-type ResizeResult = ImageManipulator.ImageResult & { base64: string };
+type YoloDetection = Detection & { box: Box };
+
+export type ResizeResult = ImageManipulator.ImageResult & { base64: string };
 
 type ClassifyOptions = {
   silent?: boolean;
@@ -41,7 +54,7 @@ type CatClassifierHook = {
   detections: Detection[];
   pickImage: () => Promise<void>;
   reloadModel: () => Promise<void>;
-  classifyBase64: (jpegBase64: string, options?: ClassifyOptions) => Promise<Detection[] | null>;
+  classifyBase64: (resized: ResizeResult, options?: ClassifyOptions) => Promise<Detection[] | null>;
   resizeToModelInput: (uri: string, context: 'gallery' | 'camera') => Promise<ResizeResult>;
   resetSilentStatus: () => void;
   log: (...args: unknown[]) => void;
@@ -49,9 +62,28 @@ type CatClassifierHook = {
   err: (...args: unknown[]) => void;
 };
 
+type RawYoloShape = {
+  format: 'raw';
+  numBoxes: number;
+  stride: number;
+  classCount: number;
+};
+
+type NmsYoloShape = {
+  format: 'nms';
+  numBoxes: number;
+  stride: number;
+};
+
+type YoloShape = RawYoloShape | NmsYoloShape;
+
 const MODEL_BASENAME = 'yolo11';
 const ONNX_ASSET = require('../../assets/models/yolo11.onnx');
 const ONNX_DATA_ASSET = require('../../assets/models/yolo11.onnx.data');
+
+const CLASSIFIER_MODEL_BASENAME = 'mobilenetv3_finetuned';
+const CLASSIFIER_ONNX_ASSET = require('../../assets/models/mobilenetv3_finetuned.onnx');
+const CLASSIFIER_ONNX_DATA_ASSET = require('../../assets/models/mobilenetv3_finetuned.onnx.data');
 
 async function prepareOnnxWithExternalData() {
   const [onnxAsset, dataAsset] = await Asset.loadAsync([
@@ -82,7 +114,36 @@ async function prepareOnnxWithExternalData() {
   return modelDst;
 }
 
-function boxIou(a: Detection['box'], b: Detection['box']) {
+async function prepareClassifierOnnx() {
+  const [onnxAsset, dataAsset] = await Asset.loadAsync([
+    CLASSIFIER_ONNX_ASSET,
+    CLASSIFIER_ONNX_DATA_ASSET,
+  ]);
+
+  const dir = FileSystem.cacheDirectory + 'ort-classifier/';
+  try {
+    await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
+  } catch (e) {
+    // directory already exists
+  }
+
+  const modelDst = `${dir}${CLASSIFIER_MODEL_BASENAME}.onnx`;
+  const dataDst = `${dir}${CLASSIFIER_MODEL_BASENAME}.onnx.data`;
+
+  await FileSystem.copyAsync({ from: onnxAsset.localUri!, to: modelDst });
+  if (dataAsset?.localUri) {
+    const dataInfo = await FileSystem.getInfoAsync(dataAsset.localUri);
+    if (dataInfo.exists && dataInfo.size && dataInfo.size > 0) {
+      await FileSystem.copyAsync({ from: dataAsset.localUri, to: dataDst });
+    } else {
+      console.warn('[CatApp] Pomijam plik klasyfikatora .onnx.data (brak lub pusty)');
+    }
+  }
+
+  return modelDst;
+}
+
+function boxIou(a: Box, b: Box) {
   const x1 = Math.max(a.x1, b.x1);
   const y1 = Math.max(a.y1, b.y1);
   const x2 = Math.min(a.x2, b.x2);
@@ -94,14 +155,14 @@ function boxIou(a: Detection['box'], b: Detection['box']) {
   return union === 0 ? 0 : inter / union;
 }
 
-function applyNms(list: Detection[], iou = YOLO_IOU_THRESHOLD, max = YOLO_MAX_DETECTIONS) {
+function applyNms(list: YoloDetection[], iou = YOLO_IOU_THRESHOLD, max = YOLO_MAX_DETECTIONS) {
   const sorted = [...list].sort((a, b) => b.score - a.score);
   const picked: Detection[] = [];
 
   while (sorted.length && picked.length < max) {
     const current = sorted.shift()!;
     picked.push(current);
-    const remaining: Detection[] = [];
+    const remaining: YoloDetection[] = [];
     for (const det of sorted) {
       if (boxIou(current.box, det.box) < iou) {
         remaining.push(det);
@@ -113,6 +174,25 @@ function applyNms(list: Detection[], iou = YOLO_IOU_THRESHOLD, max = YOLO_MAX_DE
   return picked;
 }
 
+function parseYoloShape(dims: ReadonlyArray<number> | undefined): YoloShape {
+  const outDims = Array.from(dims ?? []);
+  if (outDims.length === 3 && outDims[2] >= 6) {
+    // [batch, num_boxes, 6+]
+    const [batch, numBoxes, stride] = outDims;
+    if (batch !== 1) console.warn('[CatApp] Niespodziewany batch > 1 w wyjściu YOLO');
+    if (stride === 6) return { format: 'nms', numBoxes, stride };
+    return { format: 'raw', numBoxes, stride, classCount: stride - 5 };
+  }
+  if (outDims.length === 2 && outDims[1] >= 6) {
+    // [num_boxes, 6+] fallback
+    const [numBoxes, stride] = outDims;
+    if (stride === 6) return { format: 'nms', numBoxes, stride };
+    return { format: 'raw', numBoxes, stride, classCount: stride - 5 };
+  }
+
+  throw new Error(`Nieznany kształt wyjścia YOLO: ${outDims.join('x') || 'brak dims'}`);
+}
+
 export function useCatClassifier(): CatClassifierHook {
   const [status, setStatus] = useState('⏳ Inicjalizacja…');
   const [busy, setBusy] = useState(false);
@@ -121,26 +201,84 @@ export function useCatClassifier(): CatClassifierHook {
   const [detections, setDetections] = useState<Detection[]>([]);
 
   const sessionRef = useRef<ort.InferenceSession | null>(null);
+  const classifierSessionRef = useRef<ort.InferenceSession | null>(null);
   const lastSilentStatusRef = useRef<{ label: string; timestamp: number }>({ label: '', timestamp: 0 });
 
   const log = useCallback((...args: unknown[]) => console.log('[CatApp]', ...args), []);
   const warn = useCallback((...args: unknown[]) => console.warn('[CatApp]', ...args), []);
   const err = useCallback((...args: unknown[]) => console.error('[CatApp]', ...args), []);
 
+  const validateModelShape = useCallback(async () => {
+    const session = sessionRef.current;
+    if (!session) return;
+
+    const inputName = session.inputNames?.[0] ?? 'images';
+    const tensor = new ort.Tensor('float32', new Float32Array(3 * YOLO_INPUT_SIZE * YOLO_INPUT_SIZE), [
+      1,
+      3,
+      YOLO_INPUT_SIZE,
+      YOLO_INPUT_SIZE,
+    ]);
+
+    const outputMap = await session.run({ [inputName]: tensor });
+    const keys = Object.keys(outputMap);
+    const outName = session.outputNames?.[0] ?? keys[0];
+    const outT = outputMap[outName];
+    if (!outT?.dims) throw new Error(`Brak wymiarów wyjścia modelu "${outName}" podczas walidacji.`);
+
+    const shape = parseYoloShape(outT.dims);
+    const shapeMsg =
+      shape.format === 'nms'
+        ? `wyjście NMS (xyxy, score, class), stride ${shape.stride}, boxów ${shape.numBoxes}`
+        : `${shape.classCount} klas, stride ${shape.stride}, boxów ${shape.numBoxes}`;
+
+    log(`Walidacja modelu: ${shapeMsg}`);
+    log('Aktywne etykiety YOLO: COCO (używany tylko do detekcji kota)');
+  }, [log, warn]);
+
+  const validateClassifierShape = useCallback(async () => {
+    const session = classifierSessionRef.current;
+    if (!session) return;
+
+    const inputName = session.inputNames?.[0] ?? 'input';
+    const tensor = new ort.Tensor('float32', new Float32Array(3 * CLASSIFIER_INPUT_SIZE * CLASSIFIER_INPUT_SIZE), [
+      1,
+      3,
+      CLASSIFIER_INPUT_SIZE,
+      CLASSIFIER_INPUT_SIZE,
+    ]);
+
+    const outputMap = await session.run({ [inputName]: tensor });
+    const keys = Object.keys(outputMap);
+    const outName = session.outputNames?.[0] ?? keys[0];
+    const outT = outputMap[outName];
+    const logits = outT?.data as Float32Array | undefined;
+    if (!logits?.length) throw new Error('Klasyfikator zwrócił puste dane podczas walidacji.');
+    if (logits.length % EXPECTED_LABELS !== 0) {
+      throw new Error(
+        `Klasyfikator zwraca ${logits.length} wartości, ale labels.json definiuje ${EXPECTED_LABELS} klas. ` +
+          'Upewnij się, że eksport MobileNetV3 odpowiada temu zestawowi etykiet.'
+      );
+    }
+
+    log(`Walidacja klasyfikatora: ${EXPECTED_LABELS} klas, output "${outName}" (${logits.length} wartości)`);
+  }, [log, warn]);
+
   const decodeYoloOutput = useCallback(
     (data: Float32Array | number[], dims: ReadonlyArray<number> | undefined, meta: LetterboxMeta) => {
-      const outDims = Array.from(dims ?? []);
-      const boxes: Detection[] = [];
+      const shape = parseYoloShape(dims);
 
-      if (outDims.length === 3 && outDims[2] >= 6) {
-        // [batch, num_boxes, 6+]
-        const [batch, numBoxes, stride] = outDims;
-        if (batch !== 1) warn('Niespodziewany batch > 1 w wyjściu YOLO');
-        for (let i = 0; i < numBoxes; i += 1) {
-          const base = i * stride;
+      const boxes: YoloDetection[] = [];
+
+      for (let i = 0; i < shape.numBoxes; i += 1) {
+        const base = i * shape.stride;
+
+        if (shape.format === 'nms') {
           const score = Number(data[base + 4]);
           if (score < YOLO_CONF_THRESHOLD) continue;
-          const cls = Math.round(Number(data[base + 5] ?? 0));
+
+          const cls = Math.round(Number(data[base + 5]));
+          if (cls !== COCO_CAT_CLASS_ID) continue;
 
           const x1 = Number(data[base]);
           const y1 = Number(data[base + 1]);
@@ -154,24 +292,29 @@ export function useCatClassifier(): CatClassifierHook {
           const ny2 = Math.max(0, Math.min(1, (y2 - meta.pad.y) * invRatio / meta.origSize.height));
 
           boxes.push({
-            label: labels[cls] ?? `cls_${cls}`,
+            label: 'cat',
             score,
             box: { x1: nx1, y1: ny1, x2: nx2, y2: ny2 },
           });
-        }
-      } else if (outDims.length === 2 && outDims[1] >= 6) {
-        // [num_boxes, 6+] fallback
-        const [numBoxes, stride] = outDims;
-        for (let i = 0; i < numBoxes; i += 1) {
-          const base = i * stride;
-          const score = Number(data[base + 4]);
-          if (score < YOLO_CONF_THRESHOLD) continue;
-          const cls = Math.round(Number(data[base + 5] ?? 0));
+        } else {
+          const objScore = Number(data[base + 4]);
+          if (objScore < YOLO_CONF_THRESHOLD) continue;
 
-          const x1 = Number(data[base]);
-          const y1 = Number(data[base + 1]);
-          const x2 = Number(data[base + 2]);
-          const y2 = Number(data[base + 3]);
+          if (shape.classCount <= COCO_CAT_CLASS_ID) continue;
+
+          const clsScore = Number(data[base + 5 + COCO_CAT_CLASS_ID]);
+          const score = objScore * clsScore;
+          if (score < YOLO_CONF_THRESHOLD) continue;
+
+          const cx = Number(data[base]);
+          const cy = Number(data[base + 1]);
+          const w = Number(data[base + 2]);
+          const h = Number(data[base + 3]);
+
+          const x1 = cx - w / 2;
+          const y1 = cy - h / 2;
+          const x2 = cx + w / 2;
+          const y2 = cy + h / 2;
 
           const invRatio = 1 / meta.ratio;
           const nx1 = Math.max(0, Math.min(1, (x1 - meta.pad.x) * invRatio / meta.origSize.width));
@@ -180,25 +323,118 @@ export function useCatClassifier(): CatClassifierHook {
           const ny2 = Math.max(0, Math.min(1, (y2 - meta.pad.y) * invRatio / meta.origSize.height));
 
           boxes.push({
-            label: labels[cls] ?? `cls_${cls}`,
+            label: 'cat',
             score,
             box: { x1: nx1, y1: ny1, x2: nx2, y2: ny2 },
           });
         }
-      } else {
-        throw new Error(`Nieznany kształt wyjścia YOLO: ${outDims.join('x') || 'brak dims'}`);
       }
 
       return applyNms(boxes);
     },
-    [warn]
+    []
+  );
+
+  const pickLargestBox = useCallback((list: YoloDetection[]) => {
+    let best: YoloDetection | null = null;
+    let bestArea = -Infinity;
+
+    for (const det of list) {
+      const area = Math.max(0, det.box.x2 - det.box.x1) * Math.max(0, det.box.y2 - det.box.y1);
+      if (area > bestArea) {
+        bestArea = area;
+        best = det;
+      }
+    }
+
+    return best;
+  }, []);
+
+  const cropToClassifierInput = useCallback(
+    async (resized: ResizeResult, cropBox: Box | null) => {
+      const width = resized.width ?? YOLO_INPUT_SIZE;
+      const height = resized.height ?? YOLO_INPUT_SIZE;
+
+      const box = cropBox ?? { x1: 0, y1: 0, x2: 1, y2: 1 };
+      const originX = Math.max(0, Math.floor(box.x1 * width));
+      const originY = Math.max(0, Math.floor(box.y1 * height));
+      const cropW = Math.max(1, Math.min(width - originX, Math.round((box.x2 - box.x1) * width)));
+      const cropH = Math.max(1, Math.min(height - originY, Math.round((box.y2 - box.y1) * height)));
+
+      const outFormat = USE_PNG_LOSSLESS
+        ? ImageManipulator.SaveFormat.PNG
+        : ImageManipulator.SaveFormat.JPEG;
+
+      const cropped = await ImageManipulator.manipulateAsync(
+        resized.uri,
+        [
+          { crop: { originX, originY, width: cropW, height: cropH } },
+          { resize: { width: CLASSIFIER_INPUT_SIZE, height: CLASSIFIER_INPUT_SIZE } },
+        ],
+        { base64: true, format: outFormat, compress: USE_PNG_LOSSLESS ? 1 : 0.95 }
+      );
+
+      if (!cropped.base64) {
+        throw new Error('Brak base64 po krojeniu do klasyfikatora');
+      }
+
+      return cropped.base64;
+    },
+    []
+  );
+
+  const runClassifier = useCallback(
+    async (cropBase64: string, { excludeNotCat = false } = {}) => {
+      const session = classifierSessionRef.current;
+      if (!session) throw new Error('Sesja klasyfikatora niegotowa');
+
+      const chw = chwFromBase64JPEG224(cropBase64);
+      const inputName = session.inputNames?.[0] ?? 'input';
+      const tensor = new ort.Tensor('float32', chw, [1, 3, CLASSIFIER_INPUT_SIZE, CLASSIFIER_INPUT_SIZE]);
+
+      const outputMap = await session.run({ [inputName]: tensor });
+      const keys = Object.keys(outputMap);
+      const outName = session.outputNames?.[0] ?? keys[0];
+      const logitsT = outputMap[outName];
+      const logits = logitsT?.data as Float32Array | undefined;
+      if (!logits?.length) throw new Error('Puste wyjście klasyfikatora');
+
+      const candidateIndices = logits.map((_, idx) => idx).filter(idx => {
+        if (!excludeNotCat) return true;
+        if (NOT_CAT_INDEX === -1) return true;
+        return idx !== NOT_CAT_INDEX;
+      });
+
+      const filteredLogits = candidateIndices.map(idx => logits[idx]);
+
+      const max = Math.max(...filteredLogits);
+      const exps = filteredLogits.map(v => Math.exp(v - max));
+      const sum = exps.reduce((a, b) => a + b, 0);
+      const probs = exps.map(v => v / sum);
+
+      let bestIdx = 0;
+      let bestScore = -Infinity;
+      for (let i = 0; i < probs.length; i += 1) {
+        if (probs[i] > bestScore) {
+          bestScore = probs[i];
+          bestIdx = candidateIndices[i];
+        }
+      }
+
+      const label = labels[bestIdx] ?? `cls_${bestIdx}`;
+      const score = Number.isFinite(bestScore) ? bestScore : 0;
+
+      return { label, score };
+    },
+    []
   );
 
   const classifyBase64 = useCallback(
-    async (jpegBase64: string, { silent = false }: ClassifyOptions = {}) => {
+    async (resized: ResizeResult, { silent = false }: ClassifyOptions = {}) => {
       const session = sessionRef.current;
-      if (!session) {
-        warn('Sesja ORT niegotowa');
+      const classifierSession = classifierSessionRef.current;
+      if (!session || !classifierSession) {
+        warn('Sesje ORT niegotowe');
         setStatus('⏳ Model się ładuje…');
         return null;
       }
@@ -209,7 +445,7 @@ export function useCatClassifier(): CatClassifierHook {
       }
 
       try {
-        const { chw, meta } = yoloLetterboxChwFromBase64(jpegBase64, YOLO_INPUT_SIZE, USE_BGR);
+        const { chw, meta } = yoloLetterboxChwFromBase64(resized.base64, YOLO_INPUT_SIZE, USE_BGR);
 
         const inputName = session.inputNames?.[0] ?? 'images';
         const tensor = new ort.Tensor('float32', chw, [1, 3, YOLO_INPUT_SIZE, YOLO_INPUT_SIZE]);
@@ -222,12 +458,26 @@ export function useCatClassifier(): CatClassifierHook {
 
         const parsed = decodeYoloOutput(outT.data as Float32Array, outT.dims, meta);
         const limited = parsed.slice(0, YOLO_MAX_DETECTIONS);
+        const cropSource = pickLargestBox(limited);
 
-        setDetections(limited);
+        const cropBase64 = await cropToClassifierInput(resized, cropSource?.box ?? null);
+        const classification = await runClassifier(cropBase64, { excludeNotCat: Boolean(cropSource) });
+
+        const box = classification.label === 'Not cat' ? null : cropSource?.box ?? { x1: 0, y1: 0, x2: 1, y2: 1 };
+
+        const output: Detection[] = [
+          {
+            label: classification.label,
+            score: classification.score,
+            box,
+          },
+        ];
+
+        setDetections(output);
         if (!silent) {
           setStatus('✅ Gotowe');
-        } else if (limited.length > 0) {
-          const best = limited[0];
+        } else if (output.length > 0) {
+          const best = output[0];
           const now = Date.now();
           const shouldUpdate =
             best.label !== lastSilentStatusRef.current.label ||
@@ -237,8 +487,12 @@ export function useCatClassifier(): CatClassifierHook {
             lastSilentStatusRef.current = { label: best.label, timestamp: now };
           }
         }
-        log('Detections:', limited.map(t => `${t.label}: ${(t.score * 100).toFixed(1)}%`).join(', '));
-        return limited;
+        log(
+          'Detekcja + klasyfikacja:',
+          output.map(t => `${t.label}: ${(t.score * 100).toFixed(1)}%`).join(', '),
+          cropSource ? '(z kadrowaniem YOLO COCO cat)' : '(bez detekcji kota, pełny kadr)'
+        );
+        return output;
       } catch (e: any) {
         err('Błąd detekcji:', e?.message || e);
         if (!silent) {
@@ -254,7 +508,15 @@ export function useCatClassifier(): CatClassifierHook {
       }
       return null;
     },
-    [decodeYoloOutput, err, log, warn]
+    [
+      cropToClassifierInput,
+      decodeYoloOutput,
+      err,
+      log,
+      pickLargestBox,
+      runClassifier,
+      warn,
+    ]
   );
 
   const resizeToModelInput = useCallback<CatClassifierHook['resizeToModelInput']>(
@@ -312,7 +574,7 @@ export function useCatClassifier(): CatClassifierHook {
       console.timeEnd('Resize+Base64');
 
       setPreviewUri(resized.uri);
-      await classifyBase64(resized.base64);
+      await classifyBase64(resized);
     } catch (e: any) {
       err('Błąd obrazu:', e?.message || e);
       setStatus('❌ Błąd obrazu');
@@ -330,7 +592,10 @@ export function useCatClassifier(): CatClassifierHook {
       setStatus('📦 Ładowanie modelu…');
 
       const modelPath = await prepareOnnxWithExternalData();
-      log('Model local path:', modelPath);
+      log('Model YOLO local path:', modelPath);
+
+      const classifierPath = await prepareClassifierOnnx();
+      log('Model klasyfikatora local path:', classifierPath);
 
       setStatus('🧠 Tworzenie sesji ORT…');
       const executionProviders = Platform.select({
@@ -341,9 +606,17 @@ export function useCatClassifier(): CatClassifierHook {
       sessionRef.current = await ort.InferenceSession.create(modelPath, {
         executionProviders,
       });
+      classifierSessionRef.current = await ort.InferenceSession.create(classifierPath, {
+        executionProviders,
+      });
 
-      log('Input names:', sessionRef.current.inputNames ?? []);
-      log('Output names:', sessionRef.current.outputNames ?? []);
+      await validateModelShape();
+      await validateClassifierShape();
+
+      log('YOLO input names:', sessionRef.current.inputNames ?? []);
+      log('YOLO output names:', sessionRef.current.outputNames ?? []);
+      log('Classifier input names:', classifierSessionRef.current.inputNames ?? []);
+      log('Classifier output names:', classifierSessionRef.current.outputNames ?? []);
       setStatus('✅ Gotowe');
       setReady(true);
     } catch (e: any) {
@@ -351,7 +624,7 @@ export function useCatClassifier(): CatClassifierHook {
       setStatus('❌ Błąd ładowania modelu');
       Alert.alert('Model error', String(e?.message || e));
     }
-  }, [err, log]);
+  }, [err, log, validateClassifierShape, validateModelShape]);
 
   useEffect(() => {
     void loadModel();
