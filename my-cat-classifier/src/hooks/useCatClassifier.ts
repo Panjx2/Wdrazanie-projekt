@@ -418,7 +418,7 @@ export function useCatClassifier(): CatClassifierHook {
       const modelPath = await prepareOnnxWithExternalData();
       log('Model local path:', modelPath);
 
-      setStatus('🧠 Tworzenie sesji ORT…');
+      setStatus(`🧠 Tworzenie sesji ORT (${MODEL.kind.toUpperCase()})…`);
       const executionProviders = Platform.select({
         android: ['xnnpack', 'cpu'],
         ios: ['coreml', 'cpu'],
@@ -430,7 +430,7 @@ export function useCatClassifier(): CatClassifierHook {
 
       log('Input names:', sessionRef.current.inputNames ?? []);
       log('Output names:', sessionRef.current.outputNames ?? []);
-      setStatus('✅ Model gotowy');
+      setStatus(`✅ Model gotowy (${MODEL.kind})`);
       setReady(true);
     } catch (e: any) {
       err('Błąd modelu:', e?.message || e);

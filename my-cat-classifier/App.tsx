@@ -148,6 +148,16 @@ export default function App() {
     resumeCapture();
   }, [cameraActive, pauseCapture, reloadModel, resumeCapture, startCamera]);
 
+  const modelModeLabel = useMemo(() => {
+    if (MODEL_KIND === 'yolo') {
+      const count = detections.length;
+      return count > 0
+        ? `YOLO: ${count} wykryć z ramkami` 
+        : 'YOLO: czekam na detekcje i post-processing';
+    }
+    return 'Klasyfikacja: top-3 prawdopodobieństwa';
+  }, [detections.length]);
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaView style={{ flex: 1, backgroundColor: '#000' }}>
@@ -253,6 +263,7 @@ export default function App() {
             <Text style={{ color: ready ? '#b5ffb5' : FG_MUTED, marginTop: 2, fontSize: 12 }}>
               {status}
             </Text>
+            <Text style={{ color: FG_MUTED, marginTop: 4, fontSize: 11 }}>{modelModeLabel}</Text>
             {cameraReady ? null : (
               <Text style={{ color: FG_MUTED, marginTop: 4, fontSize: 11 }}>
                 Podgląd kamery jest aktywny.

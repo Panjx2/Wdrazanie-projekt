@@ -31,8 +31,8 @@ type YoloModelConfig = BaseModelConfig & {
 
 type ModelConfig = ClassificationModelConfig | YoloModelConfig;
 
-// Change to 'yolo' after adding your YOLO ONNX asset below.
-export const MODEL_KIND: ModelKind = 'classification';
+// Use YOLO for detection overlays by default (switch to 'classification' to return top-k labels only).
+export const MODEL_KIND: ModelKind = 'yolo';
 
 const classificationModel: ClassificationModelConfig = {
   kind: 'classification',
