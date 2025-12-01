@@ -11,7 +11,11 @@ interface UseCameraLoopParams {
     jpegBase64: string,
     options?: { silent?: boolean }
   ) => Promise<unknown>;
-  resizeToModelBase64: (uri: string, context: 'gallery' | 'camera') => Promise<{ base64: string }>;  resetSilentStatus: () => void;
+  resizeToModelBase64: (
+    uri: string,
+    context: 'gallery' | 'camera'
+  ) => Promise<{ base64: string }>;
+  resetSilentStatus: () => void;
   clearPreview?: () => void;
   warn: (...args: unknown[]) => void;
   err: (...args: unknown[]) => void;
@@ -88,7 +92,7 @@ export function useCameraLoop({
         skipProcessing: true,
       });
       if (photo?.uri) {
-        const resized = await resizeTo224Base64(photo.uri, 'camera');
+        const resized = await resizeToModelBase64(photo.uri, 'camera');
         await classifyBase64(resized.base64, { silent: true });
       }
     } catch (e) {
@@ -96,7 +100,15 @@ export function useCameraLoop({
     } finally {
       takingPictureRef.current = false;
     }
-  }, [cameraActive, cameraReady, capturePaused, classifyBase64, ready, resizeToModelBase64, warn]);
+  }, [
+    cameraActive,
+    cameraReady,
+    capturePaused,
+    classifyBase64,
+    ready,
+    resizeToModelBase64,
+    warn,
+  ]);
   const startCamera = useCallback(async () => {
     if (cameraActive) return;
 
@@ -117,7 +129,7 @@ export function useCameraLoop({
       updateStatus('❌ Błąd kamery');
       Alert.alert('Camera error', String((e as any)?.message || e));
     }
-  }, [cameraActive, cameraReady, capturePaused, classifyBase64, ready, resizeToModelBase64, warn]);
+  }, [cameraActive, clearPreview, err, permission, ready, requestPermission, updateStatus]);
 
   const handleCameraReady = useCallback(() => {
     setCameraReady(true);

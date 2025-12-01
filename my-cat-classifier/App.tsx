@@ -31,11 +31,11 @@ export default function App() {
     probTopK,
     reloadModel,
     classifyBase64,
-    resizeTo224Base64,
     resetSilentStatus,
     warn,
-    err,      resizeToModelBase64,detections
-
+    err,
+    resizeToModelBase64,
+    detections,
   } = useCatClassifier();
 
   const [zoom, setZoom] = useState(0);
@@ -58,13 +58,12 @@ export default function App() {
     ready,
     updateStatus,
     classifyBase64,
-    resizeTo224Base64,
+    resizeToModelBase64,
     resetSilentStatus,
     clearPreview: () => setPreviewUri(null),
     warn,
 
     err,
-      resizeToModelBase64,
   });
 
   useEffect(() => {
@@ -160,7 +159,8 @@ export default function App() {
               height: event.nativeEvent.layout.height,
             });
           }}
-        >          {permission?.granted ? (
+        >
+          {permission?.granted ? (
             cameraComponent
           ) : (
             <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16 }}>
