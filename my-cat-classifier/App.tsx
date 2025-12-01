@@ -364,8 +364,9 @@ export default function App() {
                 data={detections}
                 keyExtractor={(item, idx) => `${item.label}_${idx}`}
                 renderItem={({ item }) => {
-                  const wPct = Math.max(0, item.box.x2 - item.box.x1) * 100;
-                  const hPct = Math.max(0, item.box.y2 - item.box.y1) * 100;
+                  const box = item.box;
+                  const wPct = box ? Math.max(0, box.x2 - box.x1) * 100 : null;
+                  const hPct = box ? Math.max(0, box.y2 - box.y1) * 100 : null;
                   return (
                     <View
                       style={{
@@ -377,7 +378,9 @@ export default function App() {
                       <View style={{ flex: 1 }}>
                         <Text style={{ color: FG, fontSize: 13, fontWeight: '600' }}>{item.label}</Text>
                         <Text style={{ color: FG_MUTED, fontSize: 11 }}>
-                          {wPct.toFixed(1)}% × {hPct.toFixed(1)}% kadru
+                          {wPct === null || hPct === null
+                            ? 'Pełny kadr (brak boxu detekcji)'
+                            : `${wPct.toFixed(1)}% × ${hPct.toFixed(1)}% kadru`}
                         </Text>
                       </View>
                       <Text style={{ color: FG_MUTED, fontSize: 12 }}>{(item.score * 100).toFixed(1)}%</Text>
