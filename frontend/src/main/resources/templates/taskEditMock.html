@@ -1,0 +1,51 @@
+<!DOCTYPE HTML>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link th:href="@{/css/mock-views.css}" rel="stylesheet" />
+    <title>Edycja zadania</title>
+</head>
+<body>
+<div class="root">
+    <header class="header">
+        <p class="eyebrow">Zadanie</p>
+        <h1 th:text="${task.taskId == null ? 'Nowe zadanie' : 'Edycja zadania'}">Zadanie</h1>
+        <nav class="nav">
+            <a class="nav-chip" th:href="@{/projektList}">Projekty</a>
+            <a class="nav-chip" th:href="@{/taskList(projectId=${projectId})}">Zadania</a>
+        </nav>
+    </header>
+
+    <section class="panel">
+        <form th:action="@{/taskEdit}" th:object="${task}" method="post" autocomplete="off">
+            <input type="hidden" th:field="*{taskId}" />
+            <input type="hidden" th:field="*{projectId}" />
+
+            <label>Nazwa</label>
+            <input th:field="*{name}" required />
+
+            <label>Priorytet</label>
+            <input th:field="*{priority}" placeholder="LOW / MEDIUM / HIGH" />
+
+            <label>Status</label>
+            <select th:field="*{status}">
+                <option th:each="status : ${statuses}" th:value="${status}" th:text="${status}"></option>
+            </select>
+
+            <label>Przypisany uzytkownik</label>
+            <select th:field="*{assignedUserId}">
+                <option value="">-- brak --</option>
+                <option th:each="user : ${users}" th:value="${user.userId}" th:text="${user.username}"></option>
+            </select>
+
+            <div class="top">
+                <button class="btn" type="submit">Zapisz</button>
+                <button class="btn secondary" type="submit" name="cancel" value="true">Anuluj</button>
+                <button class="btn secondary" type="submit" name="delete" value="true" th:if="*{taskId != null}">Usun</button>
+            </div>
+        </form>
+    </section>
+</div>
+</body>
+</html>

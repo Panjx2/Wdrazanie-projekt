@@ -1,0 +1,88 @@
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@500;700;800&family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
+    <!-- <link th:href="@{/css/mock-views.css}" rel="stylesheet" /> -->
+    <link th:href="@{/css/mock-views.css}" rel="stylesheet" />
+    <title>Mock - Edycja Projektu</title>
+</head>
+<body>
+<div class="page-bg" aria-hidden="true">
+    <div class="blob blob-a"></div>
+    <div class="blob blob-b"></div>
+</div>
+
+<div class="root">
+    <header class="header">
+        <p class="eyebrow">Mock View</p>
+        <h1>Edycja Projektu</h1>
+        <p class="subtitle">Przyklad formularza projektu bez integracji backend.</p>
+        <nav class="nav">
+            <a class="nav-chip active" href="/projektList">Projekty</a>
+            <a class="nav-chip" href="/userListMock">Uzytkownicy</a>
+            <a class="nav-chip" href="/taskListMock">Zadania</a>
+        </nav>
+    </header>
+
+    <section class="panel">
+        <form>
+            <div class="form-grid">
+                <div class="field">
+                    <label for="projectId">ID projektu</label>
+                    <input id="projectId" type="text" value="7" readonly>
+                </div>
+
+                <div class="field full">
+                    <label for="projectName">Nazwa projektu</label>
+                    <input id="projectName" type="text" value="Website Redesign">
+                </div>
+
+                <div class="field">
+                    <label for="owner">Wlasciciel</label>
+                    <select id="owner">
+                        <option selected>anna.nowak</option>
+                        <option>m.kowalski</option>
+                        <option>test.viewer</option>
+                    </select>
+                </div>
+
+                <div class="field">
+                    <label for="status">Status</label>
+                    <select id="status">
+                        <option>PLANNED</option>
+                        <option selected>IN_PROGRESS</option>
+                        <option>COMPLETED</option>
+                        <option>ON_HOLD</option>
+                    </select>
+                </div>
+
+                <div class="field">
+                    <label for="startDate">Data startu</label>
+                    <input id="startDate" type="date" value="2026-01-15">
+                </div>
+
+                <div class="field">
+                    <label for="endDate">Data zakonczenia</label>
+                    <input id="endDate" type="date" value="2026-05-30">
+                </div>
+
+                <div class="field full">
+                    <label for="description">Opis</label>
+                    <textarea id="description" rows="4">Makieta formularza edycji projektu dopasowana wizualnie do pozostalych mock view.</textarea>
+                </div>
+            </div>
+
+            <div class="actions">
+                <button class="btn" type="button">Zapisz</button>
+                <button class="btn secondary" type="button">Anuluj</button>
+                <button class="btn danger" type="button">Usun</button>
+                <a class="btn secondary" href="/projectStudentsAssign">Przypisz studentow do projektu</a>
+            </div>
+        </form>
+    </section>
+</div>
+</body>
+</html>

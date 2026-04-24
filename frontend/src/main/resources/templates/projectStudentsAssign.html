@@ -1,0 +1,45 @@
+<!DOCTYPE HTML>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link th:href="@{/css/mock-views.css}" rel="stylesheet" />
+    <title>Przypisz uzytkownikow do projektu</title>
+</head>
+<body>
+<div class="root">
+    <header class="header">
+        <p class="eyebrow">Projekt</p>
+        <h1 th:text="'Uzytkownicy: ' + ${projectName}">Uzytkownicy projektu</h1>
+        <nav class="nav">
+            <a class="nav-chip" th:href="@{/projektDetails(projektId=${projectId})}">Powrot do projektu</a>
+            <a class="nav-chip" th:href="@{/userList}">Wszyscy uzytkownicy</a>
+        </nav>
+    </header>
+
+    <section class="panel">
+        <table>
+            <thead>
+            <tr><th>ID</th><th>Login</th><th>Email</th><th>Status</th><th>Akcja</th></tr>
+            </thead>
+            <tbody>
+            <tr th:each="student : ${students}">
+                <td th:text="${student.userId}">1</td>
+                <td th:text="${student.username}">username</td>
+                <td th:text="${student.email}">email</td>
+                <td th:text="${assignedStudentIds.contains(student.userId) ? 'przypisany' : 'nieprzypisany'}">status</td>
+                <td>
+                    <form th:action="@{/projectStudentsAssign}" method="post">
+                        <input type="hidden" name="projectId" th:value="${projectId}" />
+                        <input type="hidden" name="userId" th:value="${student.userId}" />
+                        <button class="btn secondary" type="submit" name="action" th:value="${assignedStudentIds.contains(student.userId) ? 'remove' : 'add'}" th:text="${assignedStudentIds.contains(student.userId) ? 'Usun' : 'Dodaj'}">Zmien</button>
+                    </form>
+                </td>
+            </tr>
+            <tr th:if="${#lists.isEmpty(students)}"><td colspan="5">Brak uzytkownikow.</td></tr>
+            </tbody>
+        </table>
+    </section>
+</div>
+</body>
+</html>

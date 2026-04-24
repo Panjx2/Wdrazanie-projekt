@@ -1,0 +1,47 @@
+<!DOCTYPE HTML>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link th:href="@{/css/mock-views.css}" rel="stylesheet" />
+    <title>Uzytkownicy</title>
+</head>
+<body>
+<div class="root">
+    <header class="header">
+        <p class="eyebrow">Frontend MVC → Backend REST API</p>
+        <h1>Uzytkownicy</h1>
+        <p class="subtitle">Lista jest pobierana z backendu przez UserService.</p>
+        <nav class="nav">
+            <a class="nav-chip" th:href="@{/projektList}">Projekty</a>
+            <a class="nav-chip active" th:href="@{/userList}">Uzytkownicy</a>
+        </nav>
+    </header>
+
+    <section class="panel">
+        <div class="top">
+            <strong>Lista uzytkownikow</strong>
+            <a class="btn" th:href="@{/userEdit}">+ Dodaj uzytkownika</a>
+        </div>
+
+        <table>
+            <thead>
+            <tr><th>ID</th><th>Login</th><th>Email</th><th>Imie</th><th>Nazwisko</th><th>Rola</th><th>Akcja</th></tr>
+            </thead>
+            <tbody>
+            <tr th:each="user : ${users}">
+                <td th:text="${user.userId}">1</td>
+                <td th:text="${user.username}">username</td>
+                <td th:text="${user.email}">email</td>
+                <td th:text="${user.firstName}">Imie</td>
+                <td th:text="${user.lastName}">Nazwisko</td>
+                <td th:text="${user.role}">ROLE_USER</td>
+                <td><a class="btn secondary" th:href="@{/userEdit(userId=${user.userId})}">Edytuj</a></td>
+            </tr>
+            <tr th:if="${#lists.isEmpty(users)}"><td colspan="7">Brak uzytkownikow.</td></tr>
+            </tbody>
+        </table>
+    </section>
+</div>
+</body>
+</html>

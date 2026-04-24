@@ -1,0 +1,50 @@
+<!DOCTYPE HTML>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link th:href="@{/css/list-style.css}" rel="stylesheet" />
+    <title>Lista projektow</title>
+</head>
+<body>
+<div class="root">
+    <header class="hero">
+        <p class="eyebrow">Frontend MVC → Backend REST API</p>
+        <h1>Projekty</h1>
+        <p class="subtitle">Dane na tej stronie sa pobierane z backendu przez ProjectService.</p>
+    </header>
+
+    <div class="top-panel">
+        <a class="btn" th:href="@{/projektEdit}">+ Nowy projekt</a>
+        <a class="btn btn-secondary" th:href="@{/userList}">Uzytkownicy</a>
+    </div>
+
+    <section class="table-card">
+        <table>
+            <thead>
+            <tr>
+                <th>ID</th>
+                <th>Nazwa</th>
+                <th>Akcje</th>
+            </tr>
+            </thead>
+            <tbody>
+            <tr th:each="projekt : ${projekty}">
+                <td th:text="${projekt.projectId}">1</td>
+                <td th:text="${projekt.name}">Projekt</td>
+                <td>
+                    <a class="btn btn-secondary" th:href="@{/projektDetails(projektId=${projekt.projectId})}">Detale</a>
+                    <a class="btn btn-secondary" th:href="@{/projektEdit(projektId=${projekt.projectId})}">Edytuj</a>
+                    <a class="btn btn-secondary" th:href="@{/taskList(projectId=${projekt.projectId})}">Zadania</a>
+                    <a class="btn btn-secondary" th:href="@{/projectStudentsAssign(projectId=${projekt.projectId})}">Uzytkownicy</a>
+                </td>
+            </tr>
+            <tr th:if="${#lists.isEmpty(projekty)}">
+                <td colspan="3" class="empty-state">Brak projektow.</td>
+            </tr>
+            </tbody>
+        </table>
+    </section>
+</div>
+</body>
+</html>

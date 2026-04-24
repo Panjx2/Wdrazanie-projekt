@@ -1,0 +1,50 @@
+<!DOCTYPE HTML>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link th:href="@{/css/mock-views.css}" rel="stylesheet" />
+    <title>Edycja uzytkownika</title>
+</head>
+<body>
+<div class="root">
+    <header class="header">
+        <p class="eyebrow">Uzytkownik</p>
+        <h1 th:text="${user.userId == null ? 'Nowy uzytkownik' : 'Edycja uzytkownika'}">Uzytkownik</h1>
+    </header>
+
+    <section class="panel">
+        <form th:action="@{/userEdit}" th:object="${user}" method="post" autocomplete="off">
+            <input type="hidden" th:field="*{userId}" />
+
+            <label>Login</label>
+            <input th:field="*{username}" required />
+
+            <label>Email</label>
+            <input type="email" th:field="*{email}" required />
+
+            <label>Imie</label>
+            <input th:field="*{firstName}" />
+
+            <label>Nazwisko</label>
+            <input th:field="*{lastName}" />
+
+            <label>Rola</label>
+            <select th:field="*{role}">
+                <option value="ROLE_USER">ROLE_USER</option>
+                <option value="ROLE_ADMIN">ROLE_ADMIN</option>
+            </select>
+
+            <label>Haslo</label>
+            <input type="password" th:field="*{password}" th:placeholder="${user.userId == null ? 'Wymagane przy tworzeniu' : 'Zostaw puste, aby nie zmieniac'}" />
+
+            <div class="top">
+                <button class="btn" type="submit">Zapisz</button>
+                <button class="btn secondary" type="submit" name="cancel" value="true">Anuluj</button>
+                <button class="btn secondary" type="submit" name="delete" value="true" th:if="*{userId != null}">Usun</button>
+            </div>
+        </form>
+    </section>
+</div>
+</body>
+</html>

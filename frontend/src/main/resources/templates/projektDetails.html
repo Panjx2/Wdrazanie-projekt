@@ -1,0 +1,67 @@
+<!DOCTYPE HTML>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link th:href="@{/css/project-details.css}" rel="stylesheet" />
+    <title>Detale projektu</title>
+</head>
+<body>
+<div class="root">
+    <header class="hero">
+        <p class="eyebrow">Detale projektu</p>
+        <h1 th:text="${projekt.name}">Nazwa projektu</h1>
+        <p class="subtitle">Projekt, uzytkownicy i zadania sa pobierane z backendu.</p>
+    </header>
+
+    <div class="back-nav">
+        <a class="btn-back" th:href="@{/projektList}">← Powrot do listy</a>
+    </div>
+
+    <section class="info-card">
+        <h2>Informacje</h2>
+        <p><strong>ID:</strong> <span th:text="${projekt.projectId}">1</span></p>
+        <p><strong>Nazwa:</strong> <span th:text="${projekt.name}">Projekt</span></p>
+        <div class="actions-section">
+            <a class="btn btn-primary" th:href="@{/projektEdit(projektId=${projekt.projectId})}">Edytuj projekt</a>
+            <a class="btn btn-secondary" th:href="@{/projectStudentsAssign(projectId=${projekt.projectId})}">Przypisz uzytkownikow</a>
+            <a class="btn btn-secondary" th:href="@{/taskEdit(projectId=${projekt.projectId})}">+ Dodaj zadanie</a>
+        </div>
+    </section>
+
+    <section class="users-card">
+        <h2>Uzytkownicy w projekcie</h2>
+        <div th:if="${projekt.users != null and !#lists.isEmpty(projekt.users)}">
+            <div class="file-item" th:each="user : ${projekt.users}">
+                <p class="file-name" th:text="${user.username}">username</p>
+                <p class="file-meta" th:text="${user.email}">email</p>
+            </div>
+        </div>
+        <p th:if="${projekt.users == null or #lists.isEmpty(projekt.users)}">Brak przypisanych uzytkownikow.</p>
+    </section>
+
+    <section class="users-card">
+        <h2>Zadania</h2>
+        <table>
+            <thead>
+            <tr><th>ID</th><th>Nazwa</th><th>Priorytet</th><th>Status</th><th>Przypisany</th><th>Akcje</th></tr>
+            </thead>
+            <tbody>
+            <tr th:each="task : ${tasks}">
+                <td th:text="${task.taskId}">1</td>
+                <td th:text="${task.name}">Zadanie</td>
+                <td th:text="${task.priority}">MEDIUM</td>
+                <td th:text="${task.status}">TODO</td>
+                <td th:text="${task.assignedUser == null ? '-' : task.assignedUser.username}">user</td>
+                <td>
+                    <a class="btn btn-secondary" th:href="@{/taskEdit(taskId=${task.taskId})}">Edytuj</a>
+                    <a class="btn btn-secondary" th:href="@{/taskStudentsAssign(taskId=${task.taskId})}">Przypisz</a>
+                </td>
+            </tr>
+            <tr th:if="${#lists.isEmpty(tasks)}"><td colspan="6">Brak zadan.</td></tr>
+            </tbody>
+        </table>
+    </section>
+</div>
+</body>
+</html>

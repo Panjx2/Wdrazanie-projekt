@@ -1,0 +1,51 @@
+<!DOCTYPE HTML>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link th:href="@{/css/mock-views.css}" rel="stylesheet" />
+    <title>Zadania</title>
+</head>
+<body>
+<div class="root">
+    <header class="header">
+        <p class="eyebrow">Frontend MVC → Backend REST API</p>
+        <h1 th:text="'Zadania: ' + ${project.name}">Zadania</h1>
+        <p class="subtitle">Lista jest pobierana z backendu przez TaskService.</p>
+        <nav class="nav">
+            <a class="nav-chip" th:href="@{/projektList}">Projekty</a>
+            <a class="nav-chip" th:href="@{/projektDetails(projektId=${projectId})}">Projekt</a>
+            <a class="nav-chip active" th:href="@{/taskList(projectId=${projectId})}">Zadania</a>
+            <a class="nav-chip" th:href="@{/userList}">Uzytkownicy</a>
+        </nav>
+    </header>
+
+    <section class="panel">
+        <div class="top">
+            <strong>Lista zadan</strong>
+            <a class="btn" th:href="@{/taskEdit(projectId=${projectId})}">+ Dodaj zadanie</a>
+        </div>
+
+        <table>
+            <thead>
+            <tr><th>ID</th><th>Nazwa</th><th>Priorytet</th><th>Status</th><th>Przypisany</th><th>Akcja</th></tr>
+            </thead>
+            <tbody>
+            <tr th:each="task : ${tasks}">
+                <td th:text="${task.taskId}">1</td>
+                <td th:text="${task.name}">Zadanie</td>
+                <td th:text="${task.priority}">MEDIUM</td>
+                <td th:text="${task.status}">TODO</td>
+                <td th:text="${task.assignedUser == null ? '-' : task.assignedUser.username}">user</td>
+                <td>
+                    <a class="btn secondary" th:href="@{/taskEdit(taskId=${task.taskId})}">Edytuj</a>
+                    <a class="btn secondary" th:href="@{/taskStudentsAssign(taskId=${task.taskId})}">Przypisz</a>
+                </td>
+            </tr>
+            <tr th:if="${#lists.isEmpty(tasks)}"><td colspan="6">Brak zadan.</td></tr>
+            </tbody>
+        </table>
+    </section>
+</div>
+</body>
+</html>

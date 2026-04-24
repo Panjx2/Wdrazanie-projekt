@@ -1,0 +1,61 @@
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;500;700;800&family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
+  <link th:href="@{/css/edit-style.css}" rel="stylesheet" />
+  <title>Edycja projektu</title>
+</head>
+<body>
+<div class="page-bg" aria-hidden="true">
+  <div class="shape shape-left"></div>
+  <div class="shape shape-right"></div>
+</div>
+
+<div class="root" th:with="isDelete=${#strings.equalsIgnoreCase(param.delete, 'true')}">
+  <form th:action="@{/projektEdit}"
+        th:object="${projekt}"
+        method="post"
+        th:with="akcja=*{projectId} ? (${isDelete} ? 'delete' : 'update') : 'create',
+ opis=*{projectId} ? (${isDelete} ? 'Usun' : 'Aktualizuj') : 'Utworz'"
+        autocomplete="off">
+
+    <header class="form-header">
+      <p class="eyebrow">Panel Projektu</p>
+      <h1 th:text="${opis} + ' projekt'">Edytuj projekt</h1>
+      <p class="subtitle">Wprowadz szczegoly i zapisz zmiany w jednym kroku.</p>
+    </header>
+
+    <div class="err" th:if="${#fields.hasErrors('*')}">
+      BLEDY:
+      <ul>
+        <li th:each="err : ${#fields.errors('*')}" th:text="${err}">Wprowadzone dane sa niepoprawne.</li>
+      </ul>
+    </div>
+
+    <div class="container card">
+      <div class="btns-panel">
+        <button class="btn" type="submit" th:name="${akcja}" th:text="${opis}">Zapisz</button>
+        <button class="btn btn-muted" type="submit" name="cancel" value="true">Anuluj</button>
+      </div>
+
+      <div class="field-wrap" th:if="*{projectId != null}">
+        <label for="projectId" class="lbl">Id:</label>
+        <input id="projectId" th:field="*{projectId}" class="fld" readonly />
+      </div>
+
+      <div class="field-wrap">
+        <label for="name" class="lbl">Nazwa:</label>
+        <input id="name" th:field="*{name}" class="fld" size="45" required />
+      </div>
+
+      <div class="danger-panel" th:if="*{projectId != null}">
+        <button class="btn btn-danger" type="submit" name="delete" value="true">Usun</button>
+      </div>
+    </div>
+  </form>
+</div>
+</body>
+</html>
